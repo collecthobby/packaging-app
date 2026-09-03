@@ -17,11 +17,8 @@ def clean_decimal(val) -> Decimal:
     if pd.isna(val):
         return Decimal('0')
     val_str = str(val).strip()
-    # 全角数字・全角ドットを半角に変換
     val_str = val_str.translate(str.maketrans('０１２３４５６７８９．', '0123456789.'))
-    # カンマを除去
     val_str = val_str.replace(',', '')
-    # 数字とドット以外の文字を除去
     val_str = re.sub(r'[^0-9.]', '', val_str)
     
     if not val_str:
@@ -32,18 +29,14 @@ def clean_decimal(val) -> Decimal:
         return Decimal('0')
 
 def get_sheet_url(sheet_name: str) -> str:
-    """日本語シート名を安全なURLエンコード形式に変換してCSV出力用URLを生成"""
     encoded_name = quote(sheet_name)
     return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={encoded_name}"
 
 def load_data():
-    """スプレッドシートから各シートのデータを直接取得"""
-    # 商品マスタの取得
     url_items = get_sheet_url("商品マスタ")
     df_items = pd.read_csv(url_items)
     df_items = df_items.dropna(how="all").set_index("商品ID")
     
-    # 箱マスタの取得
     url_boxes = get_sheet_url("箱マスタ")
     df_boxes = pd.read_csv(url_boxes)
     df_boxes = df_boxes.dropna(how="all")
@@ -60,7 +53,7 @@ except Exception as e:
 # --- メイン画面 ---
 col_left, col_right = st.columns([1, 1])
 
-# 左側：マスタ確認（タブ切り替え）
+# 左側：マスタ確認
 with col_left:
     st.subheader("📋 登録マスタ情報")
     tab1, tab2 = st.tabs(["📦 商品マスタ", "📐 箱マスタ"])
@@ -87,7 +80,7 @@ with col_right:
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True):
         packer = Packer()
         
-        # スプレッドシートの「箱マスタ」から動的に箱を登録（クリーニング関数を適用）
+        # 箱マスタ登録
         for _, box in df_boxes.iterrows():
             packer.add_bin(Bin(
                 str(box['箱名称']), 
@@ -99,7 +92,7 @@ with col_right:
         
         row = df_master.loc[selected_id]
         
-        # 商品を登録（クリーニング関数を適用）
+        # 商品登録
         for i in range(quantity):
             packer.add_item(Item(
                 f"{row['商品名']}_{i+1}", 
@@ -111,18 +104,24 @@ with col_right:
             
         packer.pack(bigger_first=True)
         
-        best_bin = None
+        # ★ 修正ポイント: 全商品が収まった箱の中から「容積が最小の箱」を検索
+        fitted_bins = []
         for b in packer.bins:
             if len(b.items) == quantity:
-                best_bin = b
-                break
+                # 箱の容積 (幅 x 高さ x 奥行) を計算して保持
+                volume = float(b.width) * float(b.height) * float(b.depth)
+                fitted_bins.append((volume, b))
                 
         st.markdown("---")
-        if best_bin:
+        if fitted_bins:
+            # 容積が最も小さい箱を昇順ソートして取得
+            fitted_bins.sort(key=lambda x: x[0])
+            best_bin = fitted_bins[0][1]
+            
             st.balloons()
             st.success(f"### 🎉 最適な箱: 【{best_bin.name}】")
             m_col1, m_col2 = st.columns(2)
-            m_col1.metric("箱の寸法", f"{best_bin.width}x{best_bin.height}x{best_bin.depth} cm")
+            m_col1.metric("箱の寸法", f"{best_bin.width} x {best_bin.height} x {best_bin.depth} cm")
             m_col2.metric("梱包総重量", f"{best_bin.get_total_weight():.2f} kg", f"上限 {best_bin.max_weight} kg")
             
             st.write("**【配置詳細】**")
