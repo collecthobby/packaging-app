@@ -5,24 +5,28 @@ from streamlit_gsheets import GSheetsConnection
 
 # 画面基本設定
 st.set_page_config(page_title="梱包サイズ最適化システム", page_icon="📦", layout="wide")
-st.title("📦 梱包サイズ最適化システム")
+st.title("📦 梱包サイズ最適化システム（全マスタ動的同期）")
 
 # --- Googleスプレッドシート連携設定 ---
 # ★ご自身のスプレッドシートURLに書き換えてください★
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13ijkSncdvliXRxUVKVl_xglaxPHTgOD8_hdQFXgE0pc/edit?usp=sharing"
-
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    """スプレッドシートから最新マスタを取得"""
-    df = conn.read(spreadsheet=SPREADSHEET_URL, ttl="0s")
-    df = df.dropna(how="all")
-    return df.set_index("商品ID")
+    """スプレッドシートから各シートのデータを取得"""
+    # worksheets指定で「商品マスタ」と「箱マスタ」のタブを読み分け
+    df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="商品マスタ", ttl="0s")
+    df_items = df_items.dropna(how="all").set_index("商品ID")
+    
+    df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="箱マスタ", ttl="0s")
+    df_boxes = df_boxes.dropna(how="all")
+    
+    return df_items, df_boxes
 
 try:
-    df_master = load_data()
+    df_master, df_boxes = load_data()
 except Exception as e:
-    st.error("⚠️ スプレッドシートの読み込みに失敗しました。URLおよび共有設定（編集者権限）を確認してください。")
+    st.error("⚠️ スプレッドシートの読み込みに失敗しました。シート名（商品マスタ / 箱マスタ）や共有設定を確認してください。")
     st.stop()
 
 # --- サイドバー：新商品の追加フォーム ---
@@ -51,7 +55,8 @@ with st.sidebar.form("add_item_form", clear_on_submit=True):
                 "重量(kg)": new_wt
             }])
             updated_df = pd.concat([df_master.reset_index(), new_data], ignore_index=True)
-            conn.update(spreadsheet=SPREADSHEET_URL, data=updated_df)
+            # worksheet="商品マスタ" を指定して保存
+            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="商品マスタ", data=updated_df)
             st.sidebar.success(f"「{new_name}」を保存しました！")
             st.rerun()
         else:
@@ -60,12 +65,20 @@ with st.sidebar.form("add_item_form", clear_on_submit=True):
 # --- メイン画面 ---
 col_left, col_right = st.columns([1, 1])
 
+# 左側：マスタ確認（タブ切り替え）
 with col_left:
-    st.subheader("📋 登録商品マスタ")
-    st.dataframe(df_master, use_container_width=True)
+    st.subheader("📋 登録マスタ情報")
+    tab1, tab2 = st.tabs(["📦 商品マスタ", "📐 箱マスタ"])
+    
+    with tab1:
+        st.dataframe(df_master, use_container_width=True)
+    with tab2:
+        st.dataframe(df_boxes, use_container_width=True)
+        
     if st.button("🔄 最新データに更新"):
         st.rerun()
 
+# 右側：シミュレーション実行
 with col_right:
     st.subheader("🛒 注文シミュレーション")
     
@@ -78,10 +91,16 @@ with col_right:
     
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True):
         packer = Packer()
-        # 梱包箱のバリエーション定義
-        packer.add_bin(Bin('60サイズ箱', 25, 20, 15, 5.0))
-        packer.add_bin(Bin('80サイズ箱', 35, 25, 20, 10.0))
-        packer.add_bin(Bin('100サイズ箱', 45, 35, 20, 15.0))
+        
+        # ★ スプレッドシートの「箱マスタ」から動的に箱を登録
+        for _, box in df_boxes.iterrows():
+            packer.add_bin(Bin(
+                str(box['箱名称']), 
+                float(box['幅(cm)']), 
+                float(box['高さ(cm)']), 
+                float(box['奥行(cm)']), 
+                float(box['最大重量(kg)'])
+            ))
         
         row = df_master.loc[selected_id]
         
@@ -114,4 +133,4 @@ with col_right:
             for item in best_bin.items:
                 st.caption(f"・{item.name} -> 配置座標: {item.position}")
         else:
-            st.error("⚠️ 準備されている箱（60/80/100）には収まりませんでした。")
+            st.error("⚠️ スプレッドシートに登録されているどの箱にも収まりませんでした。より大きい箱を「箱マスタ」に追加してください。")
