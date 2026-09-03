@@ -15,11 +15,11 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     """スプレッドシートから各シートのデータを取得"""
-    # worksheets指定で「商品マスタ」と「箱マスタ」のタブを読み分け
-    df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="商品マスタ", ttl="0s")
+    # ttl=0 で毎回最新データを取得、worksheetを指定
+    df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="商品マスタ", ttl=0)
     df_items = df_items.dropna(how="all").set_index("商品ID")
     
-    df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="箱マスタ", ttl="0s")
+    df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="箱マスタ", ttl=0)
     df_boxes = df_boxes.dropna(how="all")
     
     return df_items, df_boxes
