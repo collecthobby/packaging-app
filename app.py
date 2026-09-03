@@ -8,18 +8,17 @@ st.set_page_config(page_title="梱包サイズ最適化システム", page_icon=
 st.title("📦 梱包サイズ最適化システム（全マスタ動的同期）")
 
 # --- Googleスプレッドシート連携設定 ---
-# ★ご自身のスプレッドシートURLに書き換えてください★
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13ijkSncdvliXRxUVKVl_xglaxPHTgOD8_hdQFXgE0pc/edit?usp=sharing"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13ijkSncdvliXRxUVKVl_xglaxPHTgOD8_hdQFXgE0pc/"
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    """シートのインデックス（順番）で読み込む安定パターン"""
-    # 1つ目のタブ（商品マスタ）
+    """スプレッドシートから各シートのデータを取得"""
+    # worksheet="0" (1つ目のタブ: 商品マスタ)
     df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="0", ttl=0)
     df_items = df_items.dropna(how="all").set_index("商品ID")
     
-    # 2つ目のタブ（箱マスタ）
+    # worksheet="1" (2つ目のタブ: 箱マスタ)
     df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="1", ttl=0)
     df_boxes = df_boxes.dropna(how="all")
     
@@ -28,7 +27,8 @@ def load_data():
 try:
     df_master, df_boxes = load_data()
 except Exception as e:
-    st.error("⚠️ スプレッドシートの読み込みに失敗しました。シート名（商品マスタ / 箱マスタ）や共有設定を確認してください。")
+    st.error("⚠️ スプレッドシートの読み込みに失敗しました。詳細なエラー内容は以下の通りです：")
+    st.exception(e)
     st.stop()
 
 # --- サイドバー：新商品の追加フォーム ---
@@ -57,8 +57,8 @@ with st.sidebar.form("add_item_form", clear_on_submit=True):
                 "重量(kg)": new_wt
             }])
             updated_df = pd.concat([df_master.reset_index(), new_data], ignore_index=True)
-            # worksheet="商品マスタ" を指定して保存
-            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="商品マスタ", data=updated_df)
+            # 1つ目のタブ(商品マスタ)に書き込み
+            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="0", data=updated_df)
             st.sidebar.success(f"「{new_name}」を保存しました！")
             st.rerun()
         else:
@@ -94,7 +94,7 @@ with col_right:
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True):
         packer = Packer()
         
-        # ★ スプレッドシートの「箱マスタ」から動的に箱を登録
+        # スプレッドシートの「箱マスタ」から動的に箱を登録
         for _, box in df_boxes.iterrows():
             packer.add_bin(Bin(
                 str(box['箱名称']), 
