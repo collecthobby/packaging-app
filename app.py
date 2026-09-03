@@ -50,34 +50,48 @@ def load_data():
     return df_items, df_boxes
 
 def plot_3d_packing(bin_obj):
-    """箱とアイテムの配置を3D描画する関数"""
-    fig = plt.figure(figsize=(6, 6))
+    """箱とアイテムの配置を正確に3D描画する修正版関数"""
+    fig = plt.figure(figsize=(7, 7))
     ax = fig.add_subplot(111, projection='3d')
     
-    # 箱の寸法（float型）
-    bw, bh, bd = float(bin_obj.width), float(bin_obj.height), float(bin_obj.depth)
+    # py3dbpの仕様: Width(X), Depth(Y), Height(Z)
+    bw = float(bin_obj.width)
+    bd = float(bin_obj.depth)
+    bh = float(bin_obj.height)
     
-    # 箱の外枠を描画 (ワイヤーフレーム)
-    ax.plot([0, bw, bw, 0, 0, 0, bw, bw, 0, 0],
-            [0, 0, bh, bh, 0, 0, 0, bh, bh, 0],
-            [0, 0, 0, 0, 0, bd, bd, bd, bd, bd],
-            color='gray', linestyle='--', linewidth=1.5, label='箱の外枠')
+    # 1. 箱の外枠を描画 (ワイヤーフレーム: 点線)
+    # 底面(Z=0) と 上面(Z=bh)
+    x_box = [0, bw, bw, 0, 0, 0, bw, bw, 0, 0]
+    y_box = [0, 0, bd, bd, 0, 0, 0, bd, bd, 0]
+    z_box = [0, 0, 0, 0, 0, bh, bh, bh, bh, bh]
     
-    # パレットカラー（アイテムごとに色分け）
+    ax.plot(x_box, y_box, z_box, color='black', linestyle='--', linewidth=1.5, label='Box Outer')
+    
+    # 柱（縦方向の4本）
+    ax.plot([bw, bw], [0, 0], [0, bh], color='black', linestyle='--', linewidth=1.5)
+    ax.plot([bw, bw], [bd, bd], [0, bh], color='black', linestyle='--', linewidth=1.5)
+    ax.plot([0, 0], [bd, bd], [0, bh], color='black', linestyle='--', linewidth=1.5)
+    
+    # 2. パレットカラー（アイテムごとに色分け）
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
     
-    # アイテムの描画
+    # 3. アイテムの描画
     for idx, item in enumerate(bin_obj.items):
+        # 座標取得 (X, Y, Z)
         pos = [float(p) for p in item.position]
-        w, h, d = float(item.width), float(item.height), float(item.depth)
+        
+        # py3dbpの配置回転後の寸法 (Width, Depth, Height)
+        w = float(item.width)
+        d = float(item.depth)
+        h = float(item.height)
+        
         color = colors[idx % len(colors)]
         
-        # 直方体の8頂点を計算
+        # 頂点計算
         x = [pos[0], pos[0]+w, pos[0]+w, pos[0], pos[0], pos[0]+w, pos[0]+w, pos[0]]
-        y = [pos[1], pos[1], pos[1]+h, pos[1]+h, pos[1], pos[1], pos[1]+h, pos[1]+h]
-        z = [pos[2], pos[2], pos[2], pos[2], pos[2]+d, pos[2]+d, pos[2]+d, pos[2]+d]
+        y = [pos[1], pos[1], pos[1]+d, pos[1]+d, pos[1], pos[1], pos[1]+d, pos[1]+d]
+        z = [pos[2], pos[2], pos[2], pos[2], pos[2]+h, pos[2]+h, pos[2]+h, pos[2]+h]
         
-        # 6つの面を作成
         verts = [
             [[x[0],y[0],z[0]], [x[1],y[1],z[1]], [x[2],y[2],z[2]], [x[3],y[3],z[3]]], # 底面
             [[x[4],y[4],z[4]], [x[5],y[5],z[5]], [x[6],y[6],z[6]], [x[7],y[7],z[7]]], # 上面
@@ -87,15 +101,19 @@ def plot_3d_packing(bin_obj):
             [[x[1],y[1],z[1]], [x[2],y[2],z[2]], [x[6],y[6],z[6]], [x[5],y[5],z[5]]]  # 右面
         ]
         
-        poly = Poly3DCollection(verts, alpha=0.6, facecolor=color, edgecolor='black', linewidth=1)
+        poly = Poly3DCollection(verts, alpha=0.7, facecolor=color, edgecolor='black', linewidth=1)
         ax.add_collection3d(poly)
     
-    ax.set_xlabel('幅 (cm)')
-    ax.set_ylabel('高さ (cm)')
-    ax.set_zlabel('奥行 (cm)')
-    ax.set_xlim([0, max(bw, bh, bd)])
-    ax.set_ylim([0, max(bw, bh, bd)])
-    ax.set_zlim([0, max(bw, bh, bd)])
+    # 4. 軸ラベル（英語表記にして文字化けを防止）
+    ax.set_xlabel('Width [X] (cm)')
+    ax.set_ylabel('Depth [Y] (cm)')
+    ax.set_zlabel('Height [Z] (cm)')
+    
+    # 描画範囲を実際の箱サイズに合わせて固定
+    max_dim = max(bw, bd, bh)
+    ax.set_xlim([0, max_dim])
+    ax.set_ylim([0, max_dim])
+    ax.set_zlim([0, max_dim])
     
     return fig
 
