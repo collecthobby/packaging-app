@@ -4,6 +4,8 @@ from urllib.parse import quote
 from decimal import Decimal
 import re
 from py3dbp import Bin, Item, Packer
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 # 画面基本設定
 st.set_page_config(page_title="梱包サイズ最適化システム", page_icon="📦", layout="wide")
@@ -47,6 +49,56 @@ def load_data():
     
     return df_items, df_boxes
 
+def plot_3d_packing(bin_obj):
+    """箱とアイテムの配置を3D描画する関数"""
+    fig = plt.figure(figsize=(6, 6))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # 箱の寸法（float型）
+    bw, bh, bd = float(bin_obj.width), float(bin_obj.height), float(bin_obj.depth)
+    
+    # 箱の外枠を描画 (ワイヤーフレーム)
+    ax.plot([0, bw, bw, 0, 0, 0, bw, bw, 0, 0],
+            [0, 0, bh, bh, 0, 0, 0, bh, bh, 0],
+            [0, 0, 0, 0, 0, bd, bd, bd, bd, bd],
+            color='gray', linestyle='--', linewidth=1.5, label='箱の外枠')
+    
+    # パレットカラー（アイテムごとに色分け）
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
+    
+    # アイテムの描画
+    for idx, item in enumerate(bin_obj.items):
+        pos = [float(p) for p in item.position]
+        w, h, d = float(item.width), float(item.height), float(item.depth)
+        color = colors[idx % len(colors)]
+        
+        # 直方体の8頂点を計算
+        x = [pos[0], pos[0]+w, pos[0]+w, pos[0], pos[0], pos[0]+w, pos[0]+w, pos[0]]
+        y = [pos[1], pos[1], pos[1]+h, pos[1]+h, pos[1], pos[1], pos[1]+h, pos[1]+h]
+        z = [pos[2], pos[2], pos[2], pos[2], pos[2]+d, pos[2]+d, pos[2]+d, pos[2]+d]
+        
+        # 6つの面を作成
+        verts = [
+            [[x[0],y[0],z[0]], [x[1],y[1],z[1]], [x[2],y[2],z[2]], [x[3],y[3],z[3]]], # 底面
+            [[x[4],y[4],z[4]], [x[5],y[5],z[5]], [x[6],y[6],z[6]], [x[7],y[7],z[7]]], # 上面
+            [[x[0],y[0],z[0]], [x[1],y[1],z[1]], [x[5],y[5],z[5]], [x[4],y[4],z[4]]], # 前面
+            [[x[2],y[2],z[2]], [x[3],y[3],z[3]], [x[7],y[7],z[7]], [x[6],y[6],z[6]]], # 背面
+            [[x[0],y[0],z[0]], [x[3],y[3],z[3]], [x[7],y[7],z[7]], [x[4],y[4],z[4]]], # 左面
+            [[x[1],y[1],z[1]], [x[2],y[2],z[2]], [x[6],y[6],z[6]], [x[5],y[5],z[5]]]  # 右面
+        ]
+        
+        poly = Poly3DCollection(verts, alpha=0.6, facecolor=color, edgecolor='black', linewidth=1)
+        ax.add_collection3d(poly)
+    
+    ax.set_xlabel('幅 (cm)')
+    ax.set_ylabel('高さ (cm)')
+    ax.set_zlabel('奥行 (cm)')
+    ax.set_xlim([0, max(bw, bh, bd)])
+    ax.set_ylim([0, max(bw, bh, bd)])
+    ax.set_zlim([0, max(bw, bh, bd)])
+    
+    return fig
+
 try:
     df_master, df_boxes = load_data()
 except Exception as e:
@@ -70,7 +122,7 @@ with col_left:
     if st.button("🔄 最新データに更新"):
         st.rerun()
 
-# 右側：シミュレーション実行（複数商品選択対応）
+# 右側：シミュレーション実行
 with col_right:
     st.subheader("🛒 注文シミュレーション")
     
@@ -80,7 +132,6 @@ with col_right:
         format_func=lambda x: f"{x}: {df_master.loc[x, '商品名']}"
     )
     
-    # 選択された商品ごとに数量を指定
     item_quantities = {}
     if selected_ids:
         st.write("**数量設定:**")
@@ -110,7 +161,6 @@ with col_right:
                 clean_decimal(box['最大重量(kg)'])
             ))
         
-        # 複数種類・指定数量の商品をPackerに追加
         total_items_count = 0
         order_summary_list = []
         for item_id, qty in item_quantities.items():
@@ -128,7 +178,6 @@ with col_right:
             
         packer.pack(bigger_first=True)
         
-        # 全商品が収まった箱の中から「容積が最小の箱」を取得
         fitted_bins = []
         for b in packer.bins:
             if len(b.items) == total_items_count:
@@ -142,13 +191,17 @@ with col_right:
             fitted_bins.sort(key=lambda x: x[0])
             best_bin = fitted_bins[0][1]
             
-            # 結果表示（演出なし）
             st.success(f"### 🎉 最適な箱: 【{best_bin.name}】")
             m_col1, m_col2 = st.columns(2)
             m_col1.metric("箱の寸法", f"{best_bin.width} x {best_bin.height} x {best_bin.depth} cm")
             m_col2.metric("梱包総重量", f"{best_bin.get_total_weight():.2f} kg", f"上限 {best_bin.max_weight} kg")
             
-            st.write("**【配置詳細】**")
+            # --- 3D配置図の表示 ---
+            st.write("**【3D配置図】**")
+            fig = plot_3d_packing(best_bin)
+            st.pyplot(fig)
+            
+            st.write("**【配置座標詳細】**")
             for item in best_bin.items:
                 st.caption(f"・{item.name} -> 配置座標: {item.position}")
                 
