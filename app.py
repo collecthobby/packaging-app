@@ -9,7 +9,7 @@ st.title("📦 梱包サイズ最適化システム（全マスタ動的同期�
 
 # --- Googleスプレッドシート連携設定 ---
 # ★ご自身のスプレッドシートURLに書き換えてください★
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13ijkSncdvliXRxUVKVl_xglaxPHTgOD8_hdQFXgE0pc/edit?usp=sharing"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13ijkSncdvliXRxUVKVl_xglaxPHTgOD8_hdQFXgE0pc/edit?gid=0#gid=0"
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
