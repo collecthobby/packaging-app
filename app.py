@@ -1,65 +1,40 @@
 import streamlit as st
 import pandas as pd
+from urllib.parse import quote
 from py3dbp import Bin, Item, Packer
-from streamlit_gsheets import GSheetsConnection
 
 # 画面基本設定
 st.set_page_config(page_title="梱包サイズ最適化システム", page_icon="📦", layout="wide")
 st.title("📦 梱包サイズ最適化システム（全マスタ動的同期）")
 
 # --- Googleスプレッドシート連携設定 ---
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13ijkSncdvliXRxUVKVl_xglaxPHTgOD8_hdQFXgE0pc/"
+SHEET_ID = "13ijkSncdvliXRxUVKVl_xglaxPHTgOD8_hdQFXgE0pc"
 
-conn = st.connection("gsheets", type=GSheetsConnection)
+def get_sheet_url(sheet_name: str) -> str:
+    """日本語シート名を安全なURLエンコード形式に変換してCSV出力用URLを生成"""
+    encoded_name = quote(sheet_name)
+    return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={encoded_name}"
 
 def load_data():
-    """シート名（タブ名）を明示的に指定して取得"""
-    df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="商品マスタ", ttl=0)
+    """スプレッドシートから各シートのデータを直接取得"""
+    # 商品マスタの取得
+    url_items = get_sheet_url("商品マスタ")
+    df_items = pd.read_csv(url_items)
     df_items = df_items.dropna(how="all").set_index("商品ID")
     
-    df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="箱マスタ", ttl=0)
+    # 箱マスタの取得
+    url_boxes = get_sheet_url("箱マスタ")
+    df_boxes = pd.read_csv(url_boxes)
     df_boxes = df_boxes.dropna(how="all")
     
     return df_items, df_boxes
+
 try:
     df_master, df_boxes = load_data()
 except Exception as e:
-    st.error("⚠️ スプレッドシートの読み込みに失敗しました。詳細なエラー内容は以下の通りです：")
+    st.error("⚠️ スプレッドシートの読み込みに失敗しました。詳細なエラーは以下の通りです：")
     st.exception(e)
     st.stop()
-
-# --- サイドバー：新商品の追加フォーム ---
-st.sidebar.header("➕ 商品マスタの追加")
-with st.sidebar.form("add_item_form", clear_on_submit=True):
-    new_id = st.text_input("商品ID (例: ITEM004)")
-    new_name = st.text_input("商品名")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        new_w = st.number_input("幅(cm)", min_value=0.1, value=10.0, step=0.5)
-        new_h = st.number_input("高さ(cm)", min_value=0.1, value=10.0, step=0.5)
-    with col_b:
-        new_d = st.number_input("奥行(cm)", min_value=0.1, value=10.0, step=0.5)
-        new_wt = st.number_input("重量(kg)", min_value=0.01, value=0.5, step=0.1)
-    
-    submit_button = st.form_submit_button("スプレッドシートに保存")
-    
-    if submit_button:
-        if new_id and new_name:
-            new_data = pd.DataFrame([{
-                "商品ID": new_id,
-                "商品名": new_name,
-                "幅(cm)": new_w,
-                "高さ(cm)": new_h,
-                "奥行(cm)": new_d,
-                "重量(kg)": new_wt
-            }])
-            updated_df = pd.concat([df_master.reset_index(), new_data], ignore_index=True)
-            # 1つ目のタブ(商品マスタ)に書き込み
-            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="0", data=updated_df)
-            st.sidebar.success(f"「{new_name}」を保存しました！")
-            st.rerun()
-        else:
-            st.sidebar.error("商品IDと商品名は必須です。")
 
 # --- メイン画面 ---
 col_left, col_right = st.columns([1, 1])
