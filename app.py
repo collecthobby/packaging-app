@@ -14,12 +14,13 @@ SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13ijkSncdvliXRxUVKVl_x
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    """スプレッドシートから各シートのデータを取得"""
-    # ttl=0 で毎回最新データを取得、worksheetを指定
-    df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="商品マスタ", ttl=0)
+    """シートのインデックス（順番）で読み込む安定パターン"""
+    # 1つ目のタブ（商品マスタ）
+    df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="0", ttl=0)
     df_items = df_items.dropna(how="all").set_index("商品ID")
     
-    df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="箱マスタ", ttl=0)
+    # 2つ目のタブ（箱マスタ）
+    df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="1", ttl=0)
     df_boxes = df_boxes.dropna(how="all")
     
     return df_items, df_boxes
