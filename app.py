@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from urllib.parse import quote
 from decimal import Decimal
+import re
 from py3dbp import Bin, Item, Packer
 
 # 画面基本設定
@@ -10,6 +11,25 @@ st.title("📦 梱包サイズ最適化システム（全マスタ動的同期�
 
 # --- Googleスプレッドシート連携設定 ---
 SHEET_ID = "13ijkSncdvliXRxUVKVl_xglaxPHTgOD8_hdQFXgE0pc"
+
+def clean_decimal(val) -> Decimal:
+    """入力値をクリーニングして安全にDecimal型へ変換する関数"""
+    if pd.isna(val):
+        return Decimal('0')
+    val_str = str(val).strip()
+    # 全角数字・全角ドットを半角に変換
+    val_str = val_str.translate(str.maketrans('０１２３４５６７８９．', '0123456789.'))
+    # カンマを除去
+    val_str = val_str.replace(',', '')
+    # 数字とドット以外の文字を除去
+    val_str = re.sub(r'[^0-9.]', '', val_str)
+    
+    if not val_str:
+        return Decimal('0')
+    try:
+        return Decimal(val_str)
+    except:
+        return Decimal('0')
 
 def get_sheet_url(sheet_name: str) -> str:
     """日本語シート名を安全なURLエンコード形式に変換してCSV出力用URLを生成"""
@@ -67,26 +87,26 @@ with col_right:
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True):
         packer = Packer()
         
-        # スプレッドシートの「箱マスタ」から動的に箱を登録（Decimal型に変換）
+        # スプレッドシートの「箱マスタ」から動的に箱を登録（クリーニング関数を適用）
         for _, box in df_boxes.iterrows():
             packer.add_bin(Bin(
                 str(box['箱名称']), 
-                Decimal(str(box['幅(cm)'])), 
-                Decimal(str(box['高さ(cm)'])), 
-                Decimal(str(box['奥行(cm)'])), 
-                Decimal(str(box['最大重量(kg)']))
+                clean_decimal(box['幅(cm)']), 
+                clean_decimal(box['高さ(cm)']), 
+                clean_decimal(box['奥行(cm)']), 
+                clean_decimal(box['最大重量(kg)'])
             ))
         
         row = df_master.loc[selected_id]
         
-        # 商品を登録（Decimal型に変換）
+        # 商品を登録（クリーニング関数を適用）
         for i in range(quantity):
             packer.add_item(Item(
                 f"{row['商品名']}_{i+1}", 
-                Decimal(str(row['幅(cm)'])), 
-                Decimal(str(row['高さ(cm)'])), 
-                Decimal(str(row['奥行(cm)'])), 
-                Decimal(str(row['重量(kg)']))
+                clean_decimal(row['幅(cm)']), 
+                clean_decimal(row['高さ(cm)']), 
+                clean_decimal(row['奥行(cm)']), 
+                clean_decimal(row['重量(kg)'])
             ))
             
         packer.pack(bigger_first=True)
