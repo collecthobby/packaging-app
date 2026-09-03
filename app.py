@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from urllib.parse import quote
+from decimal import Decimal
 from py3dbp import Bin, Item, Packer
 
 # 画面基本設定
@@ -66,25 +67,26 @@ with col_right:
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True):
         packer = Packer()
         
-        # スプレッドシートの「箱マスタ」から動的に箱を登録
+        # スプレッドシートの「箱マスタ」から動的に箱を登録（Decimal型に変換）
         for _, box in df_boxes.iterrows():
             packer.add_bin(Bin(
                 str(box['箱名称']), 
-                float(box['幅(cm)']), 
-                float(box['高さ(cm)']), 
-                float(box['奥行(cm)']), 
-                float(box['最大重量(kg)'])
+                Decimal(str(box['幅(cm)'])), 
+                Decimal(str(box['高さ(cm)'])), 
+                Decimal(str(box['奥行(cm)'])), 
+                Decimal(str(box['最大重量(kg)']))
             ))
         
         row = df_master.loc[selected_id]
         
+        # 商品を登録（Decimal型に変換）
         for i in range(quantity):
             packer.add_item(Item(
                 f"{row['商品名']}_{i+1}", 
-                float(row['幅(cm)']), 
-                float(row['高さ(cm)']), 
-                float(row['奥行(cm)']), 
-                float(row['重量(kg)'])
+                Decimal(str(row['幅(cm)'])), 
+                Decimal(str(row['高さ(cm)'])), 
+                Decimal(str(row['奥行(cm)'])), 
+                Decimal(str(row['重量(kg)']))
             ))
             
         packer.pack(bigger_first=True)
