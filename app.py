@@ -13,17 +13,14 @@ SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13ijkSncdvliXRxUVKVl_x
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    """スプレッドシートから各シートのデータを取得"""
-    # worksheet="0" (1つ目のタブ: 商品マスタ)
-    df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="0", ttl=0)
+    """シート名（タブ名）を明示的に指定して取得"""
+    df_items = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="商品マスタ", ttl=0)
     df_items = df_items.dropna(how="all").set_index("商品ID")
     
-    # worksheet="1" (2つ目のタブ: 箱マスタ)
-    df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="1", ttl=0)
+    df_boxes = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="箱マスタ", ttl=0)
     df_boxes = df_boxes.dropna(how="all")
     
     return df_items, df_boxes
-
 try:
     df_master, df_boxes = load_data()
 except Exception as e:
