@@ -176,7 +176,7 @@ with col_right:
                 clean_decimal(box['幅(cm)']), 
                 clean_decimal(box['高さ(cm)']), 
                 clean_decimal(box['奥行(cm)']), 
-                clean_decimal(box['最大重量(kg)'])
+                float('inf')  # ★ 無限大に設定して重量判定を除外
             ))
         
         total_items_count = 0
