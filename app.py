@@ -4,8 +4,7 @@ from urllib.parse import quote
 from decimal import Decimal
 import re
 from py3dbp import Bin, Item, Packer
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import plotly.graph_objects as go
 
 # 画面基本設定
 st.set_page_config(page_title="梱包サイズ最適化システム", page_icon="📦", layout="wide")
@@ -34,61 +33,65 @@ def load_data():
     df_boxes = pd.read_csv(get_sheet_url("箱マスタ")).dropna(how="all")
     return df_items, df_boxes
 
-def plot_3d_packing(bin_obj):
-    fig = plt.figure(figsize=(7, 7))
-    ax = fig.add_subplot(111, projection='3d')
-    
+def plot_3d_packing_plotly(bin_obj):
+    """Plotlyを使用したインタラクティブな3Dパッキング表示"""
     bw = float(bin_obj.width)
-    bd = float(bin_obj.depth)
     bh = float(bin_obj.height)
-    
-    # 1. 箱の外枠描画 (X=幅, Y=奥行, Z=高さ)
-    x_box = [0, bw, bw, 0, 0, 0, bw, bw, 0, 0]
-    y_box = [0, 0, bd, bd, 0, 0, 0, bd, bd, 0]
-    z_box = [0, 0, 0, 0, 0, bh, bh, bh, bh, bh]
-    
-    ax.plot(x_box, y_box, z_box, color='black', linestyle='--', linewidth=1.5)
-    ax.plot([bw, bw], [0, 0], [0, bh], color='black', linestyle='--')
-    ax.plot([bw, bw], [bd, bd], [0, bh], color='black', linestyle='--')
-    ax.plot([0, 0], [bd, bd], [0, bh], color='black', linestyle='--')
-    
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
-    
+    bd = float(bin_obj.depth)
+
+    fig = go.Figure()
+
+    # 1. 箱の外枠（ワイヤーフレーム）
+    # 頂点定義
+    x_box = [0, bw, bw, 0, 0, 0, bw, bw, 0, 0, 0, 0, bw, bw, bw, bw]
+    y_box = [0, 0, bd, bd, 0, 0, 0, bd, bd, 0, 0, bd, bd, 0, 0, bd]
+    z_box = [0, 0, 0, 0, 0, bh, bh, bh, bh, bh, 0, 0, 0, 0, bh, bh]
+
+    fig.add_trace(go.Scatter3d(
+        x=x_box, y=y_box, z=z_box,
+        mode='lines',
+        line=dict(color='black', width=4, dash='dash'),
+        name='箱の外枠'
+    ))
+
     # 2. 商品ブロック描画
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
+
     for idx, item in enumerate(bin_obj.items):
         pos = [float(p) for p in item.position]
-        
-        # item.get_dimension() の戻り値 [d1, d2, d3] を取得して割り当て
-        dims = [float(d) for d in item.get_dimension()]
-        w, d, h = dims[0], dims[1], dims[2]
-        
-        color = colors[idx % len(colors)]
-        
+        w = float(item.width)
+        h = float(item.height)
+        d = float(item.depth)
+
         x0, x1 = pos[0], pos[0] + w
         y0, y1 = pos[1], pos[1] + d
         z0, z1 = pos[2], pos[2] + h
-        
-        verts = [
-            [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]],
-            [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
-            [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
-            [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]],
-            [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]],
-            [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]]
-        ]
-        
-        poly = Poly3DCollection(verts, alpha=0.7, facecolor=color, edgecolor='black', linewidth=1)
-        ax.add_collection3d(poly)
-    
-    ax.set_xlabel('Width [X] (cm)')
-    ax.set_ylabel('Depth [Y] (cm)')
-    ax.set_zlabel('Height [Z] (cm)')
-    
-    max_dim = max(bw, bd, bh)
-    ax.set_xlim([0, max_dim])
-    ax.set_ylim([0, max_dim])
-    ax.set_zlim([0, max_dim])
-    
+
+        # 3D メッシュ（直方体）の作成
+        fig.add_trace(go.Mesh3d(
+            x=[x0, x1, x1, x0, x0, x1, x1, x0],
+            y=[y0, y0, y1, y1, y0, y0, y1, y1],
+            z=[z0, z0, z0, z0, z1, z1, z1, z1],
+            i=[7, 0, 0, 0, 4, 4, 2, 6, 4, 0, 3, 7],
+            j=[3, 4, 1, 2, 5, 6, 5, 2, 0, 1, 6, 3],
+            k=[0, 7, 5, 3, 6, 7, 1, 1, 1, 5, 2, 2],
+            opacity=0.7,
+            color=colors[idx % len(colors)],
+            name=f"{item.name}"
+        ))
+
+    # レイアウト調整
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(title='幅 [X] (cm)', range=[0, max(bw, bd, bh)]),
+            yaxis=dict(title='奥行 [Y] (cm)', range=[0, max(bw, bd, bh)]),
+            zaxis=dict(title='高さ [Z] (cm)', range=[0, max(bw, bd, bh)]),
+            aspectmode='cube'
+        ),
+        margin=dict(r=0, l=0, b=0, t=0),
+        height=600
+    )
+
     return fig
 
 try:
@@ -137,13 +140,13 @@ with col_right:
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids):
         packer = Packer()
         
-        # 箱の登録 (幅, 奥行, 高さ)
+        # 箱の登録
         for _, box in df_boxes.iterrows():
             packer.add_bin(Bin(
                 str(box['箱名称']), 
                 clean_decimal(box['幅(cm)']), 
-                clean_decimal(box['奥行(cm)']), 
                 clean_decimal(box['高さ(cm)']), 
+                clean_decimal(box['奥行(cm)']), 
                 Decimal('100000')
             ))
         
@@ -153,12 +156,11 @@ with col_right:
             row = df_master.loc[item_id]
             order_summary_list.append(f"{row['商品名']} × {qty}")
             for i in range(qty):
-                # 商品の登録 (幅, 奥行, 高さ) ★箱と順序を一致
                 packer.add_item(Item(
                     f"{row['商品名']}_{i+1}", 
                     clean_decimal(row['幅(cm)']), 
-                    clean_decimal(row['奥行(cm)']), 
                     clean_decimal(row['高さ(cm)']), 
+                    clean_decimal(row['奥行(cm)']), 
                     clean_decimal(row['重量(kg)'])
                 ))
                 total_items_count += 1
@@ -180,12 +182,12 @@ with col_right:
             
             st.success(f"### 🎉 最適な箱: 【{best_bin.name}】")
             m_col1, m_col2 = st.columns(2)
-            m_col1.metric("箱の寸法", f"{best_bin.width} x {best_bin.depth} x {best_bin.height} cm")
+            m_col1.metric("箱の寸法", f"{best_bin.width} x {best_bin.height} x {best_bin.depth} cm")
             m_col2.metric("梱包総重量", f"{best_bin.get_total_weight():.2f} kg", f"上限 {best_bin.max_weight} kg")
             
-            st.write("**【3D配置図】**")
-            fig = plot_3d_packing(best_bin)
-            st.pyplot(fig)
+            st.write("**【3D配置図】（ドラッグで360度回転できます）**")
+            fig = plot_3d_packing_plotly(best_bin)
+            st.plotly_chart(fig, use_container_width=True)
             
             st.write("**【配置詳細】**")
             for item in best_bin.items:
@@ -194,7 +196,7 @@ with col_right:
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
                 "判定結果": best_bin.name,
-                "箱サイズ(cm)": f"{best_bin.width}x{best_bin.depth}x{best_bin.height}",
+                "箱サイズ(cm)": f"{best_bin.width}x{best_bin.height}x{best_bin.depth}",
                 "梱包重量": f"{best_bin.get_total_weight():.2f} kg"
             })
         else:
