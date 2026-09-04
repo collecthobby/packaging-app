@@ -50,16 +50,16 @@ def load_data():
     return df_items, df_boxes
 
 def plot_3d_packing(bin_obj):
-    """箱とアイテムの配置を正確に3D描画する決定版関数"""
+    """箱とアイテムの配置を正確に3D描画する修正版関数"""
     fig = plt.figure(figsize=(7, 7))
     ax = fig.add_subplot(111, projection='3d')
     
-    # py3dbpの箱寸法: Width(X), Depth(Y), Height(Z)
+    # py3dbpの仕様: Width(X), Depth(Y), Height(Z)
     bw = float(bin_obj.width)
     bd = float(bin_obj.depth)
     bh = float(bin_obj.height)
     
-    # 1. 箱の外枠を描画 (ワイヤーフレーム: 点線)
+    # 1. 箱の外枠を描画 (点線)
     x_box = [0, bw, bw, 0, 0, 0, bw, bw, 0, 0]
     y_box = [0, 0, bd, bd, 0, 0, 0, bd, bd, 0]
     z_box = [0, 0, 0, 0, 0, bh, bh, bh, bh, bh]
@@ -76,22 +76,18 @@ def plot_3d_packing(bin_obj):
     for idx, item in enumerate(bin_obj.items):
         pos = [float(p) for p in item.position]
         
-        # py3dbpの配置決定後の正確な寸法を取得
-        # get_dimension() は [width, height, depth] を返すため、
-        # Matplotlibの軸 (X=Width, Y=Depth, Z=Height) に正確に割り当てる
-        dim = [float(d) for d in item.get_dimension()]
-        w = dim[0]  # Width  (X軸)
-        h = dim[1]  # Height (Z軸)
-        d = dim[2]  # Depth  (Y軸)
+        # アイテムの寸法 (Width=X, Depth=Y, Height=Z)
+        w = float(item.width)
+        d = float(item.depth)
+        h = float(item.height)
         
         color = colors[idx % len(colors)]
         
-        # 8頂点座標 (X: pos[0], Y: pos[1], Z: pos[2])
+        # 頂点計算
         x0, x1 = pos[0], pos[0] + w
         y0, y1 = pos[1], pos[1] + d
         z0, z1 = pos[2], pos[2] + h
         
-        # 6面の作成
         verts = [
             [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], # 底面
             [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], # 上面
@@ -109,7 +105,6 @@ def plot_3d_packing(bin_obj):
     ax.set_ylabel('Depth [Y] (cm)')
     ax.set_zlabel('Height [Z] (cm)')
     
-    # アスペクト比を揃えて箱全体を表示
     max_dim = max(bw, bd, bh)
     ax.set_xlim([0, max_dim])
     ax.set_ylim([0, max_dim])
@@ -169,15 +164,15 @@ with col_right:
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids):
         packer = Packer()
         
-        # 箱マスタ登録
-        for _, box in df_boxes.iterrows():
-            packer.add_bin(Bin(
-                str(box['箱名称']), 
-                clean_decimal(box['幅(cm)']), 
-                clean_decimal(box['高さ(cm)']), 
-                clean_decimal(box['奥行(cm)']), 
-                Decimal('100000')  # ★ 無限大に設定して重量判定を除外
-            ))
+       # --- 修正後（箱の登録処理）---
+for _, box in df_boxes.iterrows():
+    packer.add_bin(Bin(
+        str(box['箱名称']), 
+        clean_decimal(box['幅(cm)']), 
+        clean_decimal(box['奥行(cm)']),  # ← 2番目を「奥行」に変更
+        clean_decimal(box['高さ(cm)']),  # ← 3番目を「高さ」に変更
+        Decimal('100000')
+    ))
         
         total_items_count = 0
         order_summary_list = []
