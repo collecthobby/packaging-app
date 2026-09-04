@@ -50,7 +50,7 @@ def load_data():
     return df_items, df_boxes
 
 def plot_3d_packing(bin_obj):
-    """箱とアイテムの配置を正確に3D描画する修正版関数"""
+    """箱とアイテムの配置を正確に3D描画する関数"""
     fig = plt.figure(figsize=(7, 7))
     ax = fig.add_subplot(111, projection='3d')
     
@@ -164,15 +164,15 @@ with col_right:
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids):
         packer = Packer()
         
-       # --- 修正後（箱の登録処理）---
-for _, box in df_boxes.iterrows():
-    packer.add_bin(Bin(
-        str(box['箱名称']), 
-        clean_decimal(box['幅(cm)']), 
-        clean_decimal(box['奥行(cm)']),  # ← 2番目を「奥行」に変更
-        clean_decimal(box['高さ(cm)']),  # ← 3番目を「高さ」に変更
-        Decimal('100000')
-    ))
+        # 箱マスタ登録（幅, 奥行, 高さの順に設定して軸ねじれを解消）
+        for _, box in df_boxes.iterrows():
+            packer.add_bin(Bin(
+                str(box['箱名称']), 
+                clean_decimal(box['幅(cm)']), 
+                clean_decimal(box['奥行(cm)']), 
+                clean_decimal(box['高さ(cm)']), 
+                Decimal('100000')
+            ))
         
         total_items_count = 0
         order_summary_list = []
@@ -206,15 +206,15 @@ for _, box in df_boxes.iterrows():
             
             st.success(f"### 🎉 最適な箱: 【{best_bin.name}】")
             m_col1, m_col2 = st.columns(2)
-            m_col1.metric("箱の寸法", f"{best_bin.width} x {best_bin.height} x {best_bin.depth} cm")
+            m_col1.metric("箱の寸法", f"{best_bin.width} x {best_bin.depth} x {best_bin.height} cm")
             m_col2.metric("梱包総重量", f"{best_bin.get_total_weight():.2f} kg", f"上限 {best_bin.max_weight} kg")
             
-            # --- 3D配置図の表示 ---
+            # 3D配置図
             st.write("**【3D配置図】**")
             fig = plot_3d_packing(best_bin)
             st.pyplot(fig)
             
-            st.write("**【配置座標詳細】**")
+            st.write("**【配置詳細】**")
             for item in best_bin.items:
                 st.caption(f"・{item.name} -> 配置座標: {item.position}")
                 
@@ -222,7 +222,7 @@ for _, box in df_boxes.iterrows():
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
                 "判定結果": best_bin.name,
-                "箱サイズ(cm)": f"{best_bin.width}x{best_bin.height}x{best_bin.depth}",
+                "箱サイズ(cm)": f"{best_bin.width}x{best_bin.depth}x{best_bin.height}",
                 "梱包重量": f"{best_bin.get_total_weight():.2f} kg"
             })
         else:
