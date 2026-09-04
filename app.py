@@ -50,66 +50,66 @@ def load_data():
     return df_items, df_boxes
 
 def plot_3d_packing(bin_obj):
-    """箱とアイテムの配置を正確に3D描画する修正版関数"""
+    """箱とアイテムの配置を正確に3D描画する決定版関数"""
     fig = plt.figure(figsize=(7, 7))
     ax = fig.add_subplot(111, projection='3d')
     
-    # py3dbpの仕様: Width(X), Depth(Y), Height(Z)
+    # py3dbpの箱寸法: Width(X), Depth(Y), Height(Z)
     bw = float(bin_obj.width)
     bd = float(bin_obj.depth)
     bh = float(bin_obj.height)
     
     # 1. 箱の外枠を描画 (ワイヤーフレーム: 点線)
-    # 底面(Z=0) と 上面(Z=bh)
     x_box = [0, bw, bw, 0, 0, 0, bw, bw, 0, 0]
     y_box = [0, 0, bd, bd, 0, 0, 0, bd, bd, 0]
     z_box = [0, 0, 0, 0, 0, bh, bh, bh, bh, bh]
     
-    ax.plot(x_box, y_box, z_box, color='black', linestyle='--', linewidth=1.5, label='Box Outer')
+    ax.plot(x_box, y_box, z_box, color='black', linestyle='--', linewidth=1.5)
+    ax.plot([bw, bw], [0, 0], [0, bh], color='black', linestyle='--')
+    ax.plot([bw, bw], [bd, bd], [0, bh], color='black', linestyle='--')
+    ax.plot([0, 0], [bd, bd], [0, bh], color='black', linestyle='--')
     
-    # 柱（縦方向の4本）
-    ax.plot([bw, bw], [0, 0], [0, bh], color='black', linestyle='--', linewidth=1.5)
-    ax.plot([bw, bw], [bd, bd], [0, bh], color='black', linestyle='--', linewidth=1.5)
-    ax.plot([0, 0], [bd, bd], [0, bh], color='black', linestyle='--', linewidth=1.5)
-    
-    # 2. パレットカラー（アイテムごとに色分け）
+    # 2. カラーパレット
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
     
     # 3. アイテムの描画
     for idx, item in enumerate(bin_obj.items):
-        # 座標取得 (X, Y, Z)
         pos = [float(p) for p in item.position]
         
-        # py3dbpの配置回転後の寸法 (Width, Depth, Height)
-        w = float(item.width)
-        d = float(item.depth)
-        h = float(item.height)
+        # py3dbpの配置決定後の正確な寸法を取得
+        # get_dimension() は [width, height, depth] を返すため、
+        # Matplotlibの軸 (X=Width, Y=Depth, Z=Height) に正確に割り当てる
+        dim = [float(d) for d in item.get_dimension()]
+        w = dim[0]  # Width  (X軸)
+        h = dim[1]  # Height (Z軸)
+        d = dim[2]  # Depth  (Y軸)
         
         color = colors[idx % len(colors)]
         
-        # 頂点計算
-        x = [pos[0], pos[0]+w, pos[0]+w, pos[0], pos[0], pos[0]+w, pos[0]+w, pos[0]]
-        y = [pos[1], pos[1], pos[1]+d, pos[1]+d, pos[1], pos[1], pos[1]+d, pos[1]+d]
-        z = [pos[2], pos[2], pos[2], pos[2], pos[2]+h, pos[2]+h, pos[2]+h, pos[2]+h]
+        # 8頂点座標 (X: pos[0], Y: pos[1], Z: pos[2])
+        x0, x1 = pos[0], pos[0] + w
+        y0, y1 = pos[1], pos[1] + d
+        z0, z1 = pos[2], pos[2] + h
         
+        # 6面の作成
         verts = [
-            [[x[0],y[0],z[0]], [x[1],y[1],z[1]], [x[2],y[2],z[2]], [x[3],y[3],z[3]]], # 底面
-            [[x[4],y[4],z[4]], [x[5],y[5],z[5]], [x[6],y[6],z[6]], [x[7],y[7],z[7]]], # 上面
-            [[x[0],y[0],z[0]], [x[1],y[1],z[1]], [x[5],y[5],z[5]], [x[4],y[4],z[4]]], # 前面
-            [[x[2],y[2],z[2]], [x[3],y[3],z[3]], [x[7],y[7],z[7]], [x[6],y[6],z[6]]], # 背面
-            [[x[0],y[0],z[0]], [x[3],y[3],z[3]], [x[7],y[7],z[7]], [x[4],y[4],z[4]]], # 左面
-            [[x[1],y[1],z[1]], [x[2],y[2],z[2]], [x[6],y[6],z[6]], [x[5],y[5],z[5]]]  # 右面
+            [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], # 底面
+            [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], # 上面
+            [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], # 前面
+            [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], # 背面
+            [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]], # 左面
+            [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]]  # 右面
         ]
         
         poly = Poly3DCollection(verts, alpha=0.7, facecolor=color, edgecolor='black', linewidth=1)
         ax.add_collection3d(poly)
     
-    # 4. 軸ラベル（英語表記にして文字化けを防止）
+    # 4. 軸設定
     ax.set_xlabel('Width [X] (cm)')
     ax.set_ylabel('Depth [Y] (cm)')
     ax.set_zlabel('Height [Z] (cm)')
     
-    # 描画範囲を実際の箱サイズに合わせて固定
+    # アスペクト比を揃えて箱全体を表示
     max_dim = max(bw, bd, bh)
     ax.set_xlim([0, max_dim])
     ax.set_ylim([0, max_dim])
