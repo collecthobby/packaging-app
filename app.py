@@ -152,7 +152,7 @@ with col_right:
             
         packer.pack(
             bigger_first=True,
-　　　　　　 distribute_items=True
+            distribute_items=True
         )
         
         fitted_bins = []
