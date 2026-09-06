@@ -115,7 +115,6 @@ with col_right:
                 key=f"qty_{item_id}"
             )
             item_quantities[item_id] = qty
-    
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids):
         packer = Packer()
         box_weight_map = {}
@@ -139,21 +138,22 @@ with col_right:
             order_summary_list.append(f"{row['商品名']} × {qty}")
             i_weight = clean_decimal(row['重量(kg)'])
             
+            # 3Dパッキングライブラリが効率的な回転を見つけやすくするため、
+            # 最長辺を高さ（Z軸）にして登録、または3方向の向きを試行
+            w, h, d = clean_decimal(row['幅(cm)']), clean_decimal(row['高さ(cm)']), clean_decimal(row['奥行(cm)'])
+            dims = sorted([w, h, d]) # 小、中、大
+            
             for i in range(qty):
+                # 立てて配置（11 x 15 x 24）できるように登録順を調整
                 packer.add_item(Item(
                     f"{row['商品名']}_{i+1}", 
-                    clean_decimal(row['幅(cm)']), 
-                    clean_decimal(row['高さ(cm)']), 
-                    clean_decimal(row['奥行(cm)']), 
+                    dims[0], dims[1], dims[2], 
                     i_weight
                 ))
                 raw_items_weight += i_weight
                 total_items_count += 1
             
-        packer.pack(
-            bigger_first=True,
-            distribute_items=True
-        )
+        packer.pack(bigger_first=True, distribute_items=True)
         
         fitted_bins = []
         for b in packer.bins:
