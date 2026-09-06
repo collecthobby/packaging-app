@@ -41,7 +41,6 @@ def load_data():
     df_items = pd.read_csv(url_items)
     df_items = df_items.dropna(how="all")
     df_items.columns = df_items.columns.str.strip()
-    # 空白列や重複列の除去
     df_items = df_items.loc[:, ~df_items.columns.duplicated()]
     df_items = df_items.set_index("商品ID")
     
@@ -50,7 +49,7 @@ def load_data():
     df_boxes = df_boxes.dropna(how="all")
     df_boxes.columns = df_boxes.columns.str.strip()
     
-    # 列名の自動吸収
+    # 列名の自動吸収（「箱の重量」「自重」「最大重量」などを「箱重量(kg)」に統一）
     box_col_map = {}
     for col in df_boxes.columns:
         if "箱" in col and "名" in col:
@@ -61,13 +60,11 @@ def load_data():
             box_col_map[col] = "高さ(cm)"
         elif "奥行" in col:
             box_col_map[col] = "奥行(cm)"
-        elif "重量" in col or "重" in col:
-            box_col_map[col] = "最大重量(kg)"
+        elif "重" in col:
+            box_col_map[col] = "箱重量(kg)"
     
     df_boxes = df_boxes.rename(columns=box_col_map)
-    # 重複した列名を自動的に集約・除去（最初にマッチした列を優先）
     df_boxes = df_boxes.loc[:, ~df_boxes.columns.duplicated()]
-    
     return df_items, df_boxes
 
 try:
@@ -121,30 +118,40 @@ with col_right:
     
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids):
         packer = Packer()
+        box_weight_map = {}  # 箱名ごとの自重（重量）を保持する辞書
         
-        # 箱マスタ登録
+        # 箱マスタ登録（耐荷重制限をなくすため max_weight には十分大きな値を設定）
         for _, box in df_boxes.iterrows():
+            b_name = str(box['箱名称'])
+            b_weight = clean_decimal(box['箱重量(kg)'])
+            box_weight_map[b_name] = b_weight
+            
             packer.add_bin(Bin(
-                str(box['箱名称']), 
+                b_name, 
                 clean_decimal(box['幅(cm)']), 
                 clean_decimal(box['高さ(cm)']), 
                 clean_decimal(box['奥行(cm)']), 
-                clean_decimal(box['最大重量(kg)'])
+                Decimal('999999')  # 容積・寸法判定に専念させるため十分大きく設定
             ))
         
         total_items_count = 0
         order_summary_list = []
+        raw_items_weight = Decimal('0')  # 純商品重量
+        
         for item_id, qty in item_quantities.items():
             row = df_master.loc[item_id]
             order_summary_list.append(f"{row['商品名']} × {qty}")
+            i_weight = clean_decimal(row['重量(kg)'])
+            
             for i in range(qty):
                 packer.add_item(Item(
                     f"{row['商品名']}_{i+1}", 
                     clean_decimal(row['幅(cm)']), 
                     clean_decimal(row['高さ(cm)']), 
                     clean_decimal(row['奥行(cm)']), 
-                    clean_decimal(row['重量(kg)'])
+                    i_weight
                 ))
+                raw_items_weight += i_weight
                 total_items_count += 1
             
         packer.pack(bigger_first=True)
@@ -162,40 +169,41 @@ with col_right:
             fitted_bins.sort(key=lambda x: x[0])
             best_bin = fitted_bins[0][1]
             
+            # 該当箱の自重を取得して梱包総重量を計算 (商品合計重量 + 箱自重)
+            box_self_weight = box_weight_map.get(best_bin.name, Decimal('0'))
+            total_pack_weight = raw_items_weight + box_self_weight
+            
             st.success(f"### 🎉 最適な箱: 【{best_bin.name}】")
             
             # 1. 判定された箱のスペック
             m_col1, m_col2 = st.columns(2)
             m_col1.metric("選択された箱の寸法", f"{best_bin.width} x {best_bin.height} x {best_bin.depth} cm")
-            m_col2.metric("梱包総重量", f"{best_bin.get_total_weight():.2f} kg", f"上限 {best_bin.max_weight} kg")
+            m_col2.metric("梱包総重量 (商品+箱)", f"{total_pack_weight:.2f} kg", f"内 箱自重: {box_self_weight:.2f} kg")
             
-            # 2. 詰めた商品の絶対範囲（最小値と最大値の差）から実際の外形寸法を厳密計算
+            # 2. 詰めた商品の外形範囲寸法
             min_x = min([float(item.position[0]) for item in best_bin.items])
             max_x = max([float(item.position[0]) + float(item.width) for item in best_bin.items])
-            
             min_y = min([float(item.position[1]) for item in best_bin.items])
             max_y = max([float(item.position[1]) + float(item.height) for item in best_bin.items])
-            
             min_z = min([float(item.position[2]) for item in best_bin.items])
             max_z = max([float(item.position[2]) + float(item.depth) for item in best_bin.items])
             
             actual_w = max_x - min_x
             actual_h = max_y - min_y
             actual_d = max_z - min_z
-            total_weight = float(best_bin.get_total_weight())
             
             st.write("---")
-            st.write("**📦 選択商品の実際のおまとめサイズ・重量**")
+            st.write("**📦 選択商品の合算情報**")
             p_col1, p_col2 = st.columns(2)
-            p_col1.info(f"**必要寸法 (W × H × D):**\n\n**{actual_w:.1f} × {actual_h:.1f} × {actual_d:.1f} cm**")
-            p_col2.info(f"**商品合計重量:**\n\n**{total_weight:.2f} kg**")
+            p_col1.info(f"**商品の必要最小寸法 (W × H × D):**\n\n**{actual_w:.1f} × {actual_h:.1f} × {actual_d:.1f} cm**")
+            p_col2.info(f"**商品のみの合計重量:**\n\n**{raw_items_weight:.2f} kg**")
             
             # 履歴に追加
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
                 "判定結果": best_bin.name,
                 "必要寸法(cm)": f"{actual_w:.1f}x{actual_h:.1f}x{actual_d:.1f}",
-                "梱包重量": f"{total_weight:.2f} kg"
+                "梱包総重量": f"{total_pack_weight:.2f} kg (箱: {box_self_weight:.2f}kg)"
             })
         else:
             st.error("⚠️ スプレッドシートに登録されているどの箱にも収まりませんでした。より大きい箱を「箱マスタ」に追加してください。")
@@ -203,7 +211,7 @@ with col_right:
                 "注文内容": order_str,
                 "判定結果": "適合なし (サイズオーバー)",
                 "必要寸法(cm)": "-",
-                "梱包重量": "-"
+                "梱包総重量": "-"
             })
 
 # --- 画面下部：判定履歴 ---
