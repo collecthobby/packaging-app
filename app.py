@@ -150,8 +150,9 @@ with col_right:
                 raw_items_weight += i_weight
                 total_items_count += 1
             
-        packer.pack(bigger_first=True,
-                   distribute_items=True
+        packer.pack(
+            bigger_first=True,
+　　　　　　 distribute_items=True
         )
         
         fitted_bins = []
