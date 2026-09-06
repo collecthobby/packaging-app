@@ -41,6 +41,8 @@ def load_data():
     df_items = pd.read_csv(url_items)
     df_items = df_items.dropna(how="all")
     df_items.columns = df_items.columns.str.strip()
+    # 空白列や重複列の除去
+    df_items = df_items.loc[:, ~df_items.columns.duplicated()]
     df_items = df_items.set_index("商品ID")
     
     url_boxes = get_sheet_url("箱マスタ")
@@ -63,6 +65,9 @@ def load_data():
             box_col_map[col] = "最大重量(kg)"
     
     df_boxes = df_boxes.rename(columns=box_col_map)
+    # 重複した列名を自動的に集約・除去（最初にマッチした列を優先）
+    df_boxes = df_boxes.loc[:, ~df_boxes.columns.duplicated()]
+    
     return df_items, df_boxes
 
 try:
