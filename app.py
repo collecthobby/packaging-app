@@ -39,12 +39,30 @@ def get_sheet_url(sheet_name: str) -> str:
 def load_data():
     url_items = get_sheet_url("商品マスタ")
     df_items = pd.read_csv(url_items)
-    df_items = df_items.dropna(how="all").set_index("商品ID")
+    df_items = df_items.dropna(how="all")
+    df_items.columns = df_items.columns.str.strip()
+    df_items = df_items.set_index("商品ID")
     
     url_boxes = get_sheet_url("箱マスタ")
     df_boxes = pd.read_csv(url_boxes)
     df_boxes = df_boxes.dropna(how="all")
+    df_boxes.columns = df_boxes.columns.str.strip()
     
+    # 列名の自動吸収
+    box_col_map = {}
+    for col in df_boxes.columns:
+        if "箱" in col and "名" in col:
+            box_col_map[col] = "箱名称"
+        elif "幅" in col:
+            box_col_map[col] = "幅(cm)"
+        elif "高さ" in col or "高" in col:
+            box_col_map[col] = "高さ(cm)"
+        elif "奥行" in col:
+            box_col_map[col] = "奥行(cm)"
+        elif "重量" in col or "重" in col:
+            box_col_map[col] = "最大重量(kg)"
+    
+    df_boxes = df_boxes.rename(columns=box_col_map)
     return df_items, df_boxes
 
 try:
@@ -146,27 +164,32 @@ with col_right:
             m_col1.metric("選択された箱の寸法", f"{best_bin.width} x {best_bin.height} x {best_bin.depth} cm")
             m_col2.metric("梱包総重量", f"{best_bin.get_total_weight():.2f} kg", f"上限 {best_bin.max_weight} kg")
             
-            # 2. 詰めた商品の外形サイズ（必要最小寸法）と合計重量の計算
+            # 2. 詰めた商品の絶対範囲（最小値と最大値の差）から実際の外形寸法を厳密計算
+            min_x = min([float(item.position[0]) for item in best_bin.items])
             max_x = max([float(item.position[0]) + float(item.width) for item in best_bin.items])
+            
+            min_y = min([float(item.position[1]) for item in best_bin.items])
             max_y = max([float(item.position[1]) + float(item.height) for item in best_bin.items])
+            
+            min_z = min([float(item.position[2]) for item in best_bin.items])
             max_z = max([float(item.position[2]) + float(item.depth) for item in best_bin.items])
+            
+            actual_w = max_x - min_x
+            actual_h = max_y - min_y
+            actual_d = max_z - min_z
             total_weight = float(best_bin.get_total_weight())
             
             st.write("---")
-            st.write("**📦 選択商品の合算サイズ・重量**")
+            st.write("**📦 選択商品の実際のおまとめサイズ・重量**")
             p_col1, p_col2 = st.columns(2)
-            p_col1.info(f"**必要寸法 (W × H × D):**\n\n**{max_x:.1f} × {max_y:.1f} × {max_z:.1f} cm**")
+            p_col1.info(f"**必要寸法 (W × H × D):**\n\n**{actual_w:.1f} × {actual_h:.1f} × {actual_d:.1f} cm**")
             p_col2.info(f"**商品合計重量:**\n\n**{total_weight:.2f} kg**")
             
-            st.write("**【各商品の配置座標】**")
-            for item in best_bin.items:
-                st.caption(f"・{item.name} -> 配置位置(X,Y,Z): {item.position}")
-                
             # 履歴に追加
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
                 "判定結果": best_bin.name,
-                "必要寸法(cm)": f"{max_x:.1f}x{max_y:.1f}x{max_z:.1f}",
+                "必要寸法(cm)": f"{actual_w:.1f}x{actual_h:.1f}x{actual_d:.1f}",
                 "梱包重量": f"{total_weight:.2f} kg"
             })
         else:
