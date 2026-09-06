@@ -116,7 +116,7 @@ with col_right:
             )
             item_quantities[item_id] = qty
     
-   # --- 判定処理部分の修正 ---
+    # --- 判定処理部分の修正 ---
 if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids):
     packer = Packer()
     box_weight_map = {}
