@@ -3,7 +3,7 @@ import pandas as pd
 from urllib.parse import quote
 from decimal import Decimal
 import re
-from py3dbp import Bin, Item, Packer
+import itertools
 
 # 画面基本設定
 st.set_page_config(page_title="梱包サイズ最適化システム", page_icon="📦", layout="wide")
@@ -115,97 +115,124 @@ with col_right:
                 key=f"qty_{item_id}"
             )
             item_quantities[item_id] = qty
+
+    def calculate_min_bounding_box(items_list):
+        """商品のリストから全パッキングパターンを算出し、最小の外包サイズとそれに適合する箱を返す"""
+        # 同一商品が複数ある場合のグリッド(nx, ny, nz)パターン算出
+        # 単一種類の商品まとめ買いに対応
+        total_items = len(items_list)
+        
+        # 向きのバリエーション（全6パターン）
+        def get_orientations(w, h, d):
+            return list(set(itertools.permutations([w, h, d])))
+
+        best_bounding_boxes = []
+
+        # 商品個数に対する可能な分解（例: 4個 -> 1x1x4, 1x2x2, 2x2x1 など）
+        factors = []
+        for x in range(1, total_items + 1):
+            for y in range(1, total_items + 1):
+                for z in range(1, total_items + 1):
+                    if x * y * z >= total_items:
+                        factors.append((x, y, z))
+
+        # 単一商品種の場合のブロック最適化
+        if len(set([it['id'] for it in items_list])) == 1:
+            item_spec = items_list[0]
+            w, h, d = item_spec['w'], item_spec['h'], item_spec['d']
+            orientations = get_orientations(w, h, d)
+
+            for fx, fy, fz in factors:
+                for ow, oh, od in orientations:
+                    bounding_w = ow * fx
+                    bounding_h = oh * fy
+                    bounding_d = od * fz
+                    best_bounding_boxes.append((bounding_w, bounding_h, bounding_d))
+        else:
+            # 複数種類混載時の簡易合成（各商品の方向ごとの合計最大値）
+            # 基本は単純積み上げ・並べ
+            sum_w = sum([it['w'] for it in items_list])
+            max_h = max([it['h'] for it in items_list])
+            max_d = max([it['d'] for it in items_list])
+            best_bounding_boxes.append((sum_w, max_h, max_d))
+
+        return best_bounding_boxes
+
     if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids):
-        packer = Packer()
-        box_weight_map = {}
-        
-        for _, box in df_boxes.iterrows():
-            b_name = str(box['箱名称'])
-            bw = clean_decimal(box['幅(cm)'])
-            bh = clean_decimal(box['高さ(cm)'])
-            bd = clean_decimal(box['奥行(cm)'])
-            b_weight = clean_decimal(box['箱重量(kg)'])
-            
-            box_weight_map[b_name] = b_weight
-            packer.add_bin(Bin(b_name, bw, bh, bd, Decimal('999999')))
-        
-        total_items_count = 0
+        items_list = []
         order_summary_list = []
         raw_items_weight = Decimal('0')
-        
+
         for item_id, qty in item_quantities.items():
             row = df_master.loc[item_id]
             order_summary_list.append(f"{row['商品名']} × {qty}")
             i_weight = clean_decimal(row['重量(kg)'])
             
-            # 3Dパッキングライブラリが効率的な回転を見つけやすくするため、
-            # 最長辺を高さ（Z軸）にして登録、または3方向の向きを試行
-            w, h, d = clean_decimal(row['幅(cm)']), clean_decimal(row['高さ(cm)']), clean_decimal(row['奥行(cm)'])
-            dims = sorted([w, h, d]) # 小、中、大
-            
-            for i in range(qty):
-                # 立てて配置（11 x 15 x 24）できるように登録順を調整
-                packer.add_item(Item(
-                    f"{row['商品名']}_{i+1}", 
-                    dims[0], dims[1], dims[2], 
-                    i_weight
-                ))
+            iw = float(clean_decimal(row['幅(cm)']))
+            ih = float(clean_decimal(row['高さ(cm)']))
+            id_ = float(clean_decimal(row['奥行(cm)']))
+
+            for _ in range(qty):
+                items_list.append({'id': item_id, 'w': iw, 'h': ih, 'd': id_})
                 raw_items_weight += i_weight
-                total_items_count += 1
-            
-        packer.pack(bigger_first=True, distribute_items=True)
-        
-        fitted_bins = []
-        for b in packer.bins:
-            if len(b.items) == total_items_count:
-                min_x = min([float(item.position[0]) for item in b.items])
-                max_x = max([float(item.position[0]) + float(item.width) for item in b.items])
-                min_y = min([float(item.position[1]) for item in b.items])
-                max_y = max([float(item.position[1]) + float(item.height) for item in b.items])
-                min_z = min([float(item.position[2]) for item in b.items])
-                max_z = max([float(item.position[2]) + float(item.depth) for item in b.items])
-                
-                actual_w = max_x - min_x
-                actual_h = max_y - min_y
-                actual_d = max_z - min_z
-                
-                # 箱の各辺と商品の各辺を比較し、入りきらない箱を除外する厳密チェック
-                item_dims = sorted([actual_w, actual_h, actual_d])
-                box_dims = sorted([float(b.width), float(b.height), float(b.depth)])
-                
-                if item_dims[0] <= box_dims[0] and item_dims[1] <= box_dims[1] and item_dims[2] <= box_dims[2]:
-                    volume = float(b.width) * float(b.height) * float(b.depth)
-                    fitted_bins.append((volume, b, actual_w, actual_h, actual_d))
-                
+
+        # 商品群の必要外装サイズの候補パターンを取得
+        bounding_candidates = calculate_min_bounding_box(items_list)
+
+        fitted_boxes = []
+
+        for _, box in df_boxes.iterrows():
+            b_name = str(box['箱名称'])
+            bw = float(clean_decimal(box['幅(cm)']))
+            bh = float(clean_decimal(box['高さ(cm)']))
+            bd = float(clean_decimal(box['奥行(cm)']))
+            b_weight = clean_decimal(box['箱重量(kg)'])
+
+            box_dims_sorted = sorted([bw, bh, bd])
+            box_volume = bw * bh * bd
+
+            for cw, ch, cd in bounding_candidates:
+                cand_dims_sorted = sorted([cw, ch, cd])
+                # 各辺比較で完全に収まるか判定
+                if (cand_dims_sorted[0] <= box_dims_sorted[0] and
+                    cand_dims_sorted[1] <= box_dims_sorted[1] and
+                    cand_dims_sorted[2] <= box_dims_sorted[2]):
+                    
+                    fitted_boxes.append({
+                        'volume': box_volume,
+                        'name': b_name,
+                        'box_w': bw, 'box_h': bh, 'box_d': bd,
+                        'box_weight': b_weight,
+                        'actual_w': cw, 'actual_h': ch, 'actual_d': cd
+                    })
+
         st.markdown("---")
         order_str = ", ".join(order_summary_list)
-        
-        if fitted_bins:
-            fitted_bins.sort(key=lambda x: x[0])
-            best_tuple = fitted_bins[0]
-            best_bin = best_tuple[1]
-            actual_w, actual_h, actual_d = best_tuple[2], best_tuple[3], best_tuple[4]
-            
-            box_self_weight = box_weight_map.get(best_bin.name, Decimal('0'))
-            total_pack_weight = raw_items_weight + box_self_weight
-            
-            st.success(f"### 🎉 最適な箱: 【{best_bin.name}】")
-            
+
+        if fitted_boxes:
+            # 容積が最も小さい箱を選択
+            fitted_boxes.sort(key=lambda x: x['volume'])
+            best_box = fitted_boxes[0]
+
+            total_pack_weight = raw_items_weight + best_box['box_weight']
+
+            st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
+
             m_col1, m_col2 = st.columns(2)
-            m_col1.metric("選択された箱の寸法", f"{best_bin.width} x {best_bin.height} x {best_bin.depth} cm")
-            m_col2.metric("梱包総重量 (商品+箱)", f"{total_pack_weight:.2f} kg", f"内 箱自重: {box_self_weight:.2f} kg")
-            
+            m_col1.metric("選択された箱の寸法", f"{best_box['box_w']} x {best_box['box_h']} x {best_box['box_d']} cm")
+            m_col2.metric("梱包総重量 (商品+箱)", f"{total_pack_weight:.2f} kg", f"内 箱自重: {best_box['box_weight']:.2f} kg")
+
             st.write("---")
             st.write("**📦 選択商品の合算情報**")
             p_col1, p_col2 = st.columns(2)
-            p_col1.info(f"**商品の必要最小寸法 (W × H × D):**\n\n**{actual_w:.1f} × {actual_h:.1f} × {actual_d:.1f} cm**")
+            p_col1.info(f"**商品の必要最小寸法 (W × H × D):**\n\n**{best_box['actual_w']:.1f} × {best_box['actual_h']:.1f} × {best_box['actual_d']:.1f} cm**")
             p_col2.info(f"**商品のみの合計重量:**\n\n**{raw_items_weight:.2f} kg**")
-            
+
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
-                "判定結果": best_bin.name,
-                "必要寸法(cm)": f"{actual_w:.1f}x{actual_h:.1f}x{actual_d:.1f}",
-                "梱包総重量": f"{total_pack_weight:.2f} kg (箱: {box_self_weight:.2f}kg)"
+                "判定結果": best_box['name'],
+                "必要寸法(cm)": f"{best_box['actual_w']:.1f}x{best_box['actual_h']:.1f}x{best_box['actual_d']:.1f}",
+                "梱包総重量": f"{total_pack_weight:.2f} kg (箱: {best_box['box_weight']:.2f}kg)"
             })
         else:
             st.error("⚠️ 選択した商品が入る箱が「箱マスタ」にありません。より大きいサイズの箱を登録してください。")
@@ -223,7 +250,7 @@ st.subheader("📜 判定履歴")
 if st.session_state.history:
     df_history = pd.DataFrame(st.session_state.history)
     st.dataframe(df_history, use_container_width=True)
-    
+
     if st.button("🗑️ 履歴をクリア"):
         st.session_state.history = []
         st.rerun()
