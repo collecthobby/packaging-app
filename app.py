@@ -118,17 +118,13 @@ with col_right:
 
     def calculate_min_bounding_box(items_list):
         """商品のリストから全パッキングパターンを算出し、最小の外包サイズとそれに適合する箱を返す"""
-        # 同一商品が複数ある場合のグリッド(nx, ny, nz)パターン算出
-        # 単一種類の商品まとめ買いに対応
         total_items = len(items_list)
         
-        # 向きのバリエーション（全6パターン）
         def get_orientations(w, h, d):
             return list(set(itertools.permutations([w, h, d])))
 
         best_bounding_boxes = []
 
-        # 商品個数に対する可能な分解（例: 4個 -> 1x1x4, 1x2x2, 2x2x1 など）
         factors = []
         for x in range(1, total_items + 1):
             for y in range(1, total_items + 1):
@@ -136,7 +132,6 @@ with col_right:
                     if x * y * z >= total_items:
                         factors.append((x, y, z))
 
-        # 単一商品種の場合のブロック最適化
         if len(set([it['id'] for it in items_list])) == 1:
             item_spec = items_list[0]
             w, h, d = item_spec['w'], item_spec['h'], item_spec['d']
@@ -149,8 +144,6 @@ with col_right:
                     bounding_d = od * fz
                     best_bounding_boxes.append((bounding_w, bounding_h, bounding_d))
         else:
-            # 複数種類混載時の簡易合成（各商品の方向ごとの合計最大値）
-            # 基本は単純積み上げ・並べ
             sum_w = sum([it['w'] for it in items_list])
             max_h = max([it['h'] for it in items_list])
             max_d = max([it['d'] for it in items_list])
@@ -162,6 +155,7 @@ with col_right:
         items_list = []
         order_summary_list = []
         raw_items_weight = Decimal('0')
+        total_items_volume = 0.0 # 商品の純体積（合計）
 
         for item_id, qty in item_quantities.items():
             row = df_master.loc[item_id]
@@ -172,13 +166,14 @@ with col_right:
             ih = float(clean_decimal(row['高さ(cm)']))
             id_ = float(clean_decimal(row['奥行(cm)']))
 
+            item_vol = iw * ih * id_
+
             for _ in range(qty):
                 items_list.append({'id': item_id, 'w': iw, 'h': ih, 'd': id_})
                 raw_items_weight += i_weight
+                total_items_volume += item_vol
 
-        # 商品群の必要外装サイズの候補パターンを取得
         bounding_candidates = calculate_min_bounding_box(items_list)
-
         fitted_boxes = []
 
         for _, box in df_boxes.iterrows():
@@ -193,7 +188,6 @@ with col_right:
 
             for cw, ch, cd in bounding_candidates:
                 cand_dims_sorted = sorted([cw, ch, cd])
-                # 各辺比較で完全に収まるか判定
                 if (cand_dims_sorted[0] <= box_dims_sorted[0] and
                     cand_dims_sorted[1] <= box_dims_sorted[1] and
                     cand_dims_sorted[2] <= box_dims_sorted[2]):
@@ -210,11 +204,16 @@ with col_right:
         order_str = ", ".join(order_summary_list)
 
         if fitted_boxes:
-            # 容積が最も小さい箱を選択
             fitted_boxes.sort(key=lambda x: x['volume'])
             best_box = fitted_boxes[0]
 
             total_pack_weight = raw_items_weight + best_box['box_weight']
+
+            # --- 隙間空間の計算 ---
+            box_vol = best_box['volume'] # 箱の総容積 (cm³)
+            unused_vol = box_vol - total_items_volume # 無駄な空間 (cm³)
+            fill_rate = (total_items_volume / box_vol) * 100 if box_vol > 0 else 0 # 充填率 (%)
+            empty_rate = 100.0 - fill_rate # 空白率 (%)
 
             st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
 
@@ -228,11 +227,24 @@ with col_right:
             p_col1.info(f"**商品の必要最小寸法 (W × H × D):**\n\n**{best_box['actual_w']:.1f} × {best_box['actual_h']:.1f} × {best_box['actual_d']:.1f} cm**")
             p_col2.info(f"**商品のみの合計重量:**\n\n**{raw_items_weight:.2f} kg**")
 
+            # --- 新機能: 空間効率分析 ---
+            st.write("**💡 箱の空間効率・余白分析**")
+            e_col1, e_col2, e_col3 = st.columns(3)
+            e_col1.metric("箱の容量", f"{box_vol/1000:.1f} L", f"{box_vol:,.0f} cm³")
+            e_col2.metric("無駄な空間 (デッドスペース)", f"{unused_vol/1000:.1f} L", f"{unused_vol:,.0f} cm³")
+            e_col3.metric("箱の空間率", f"充填 {fill_rate:.1f}%", f"隙間 {empty_rate:.1f}%", delta_color="inverse")
+
+            if empty_rate > 40:
+                st.warning(f"⚠️ **すき間注意**: 箱に対して商品の占有率が低い ({fill_rate:.1f}%) ため、緩衝材（エアクッション等）が多く必要になります。")
+            else:
+                st.success(f"✅ **フィット良好**: 効率よく梱包されています（隙間率 {empty_rate:.1f}%）。")
+
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
                 "判定結果": best_box['name'],
                 "必要寸法(cm)": f"{best_box['actual_w']:.1f}x{best_box['actual_h']:.1f}x{best_box['actual_d']:.1f}",
-                "梱包総重量": f"{total_pack_weight:.2f} kg (箱: {best_box['box_weight']:.2f}kg)"
+                "無駄な空間": f"{unused_vol/1000:.1f} L ({empty_rate:.1f}%)",
+                "梱包総重量": f"{total_pack_weight:.2f} kg"
             })
         else:
             st.error("⚠️ 選択した商品が入る箱が「箱マスタ」にありません。より大きいサイズの箱を登録してください。")
@@ -240,6 +252,7 @@ with col_right:
                 "注文内容": order_str,
                 "判定結果": "適合なし (サイズオーバー)",
                 "必要寸法(cm)": "-",
+                "無駄な空間": "-",
                 "梱包総重量": "-"
             })
 
