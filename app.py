@@ -75,12 +75,12 @@ except Exception as e:
     st.stop()
 
 # ==========================================
-# 左右 2カラムレイアウトの構築
+# 上部: 左右2カラム（マスタ確認＆入力フォーム）
 # ==========================================
 col_left, col_right = st.columns([5, 7])
 
 # ------------------------------------------
-# 左カラム: 📋 登録マスタ情報（テーブルからの商品選択に対応）
+# 左カラム: 📋 登録マスタ情報（チェックボックス連動）
 # ------------------------------------------
 with col_left:
     st.subheader("📋 登録マスタ情報")
@@ -89,7 +89,6 @@ with col_left:
     selected_from_table = []
     with tab1:
         st.caption("👈 左端のチェックボックスを選択すると、右側の注文に反映されます")
-        # st.dataframe の on_select 機能で選択行のインデックスを取得
         event = st.dataframe(
             df_master, 
             use_container_width=True,
@@ -97,7 +96,6 @@ with col_left:
             selection_mode="multi-row"
         )
         
-        # 選択された行の商品IDをリスト化
         if event and event.selection and event.selection.rows:
             selected_indices = event.selection.rows
             selected_from_table = df_master.index[selected_indices].tolist()
@@ -109,7 +107,7 @@ with col_left:
         st.rerun()
 
 # ------------------------------------------
-# 右カラム: 🛒 注文シミュレーション & 判定結果
+# 右カラム: 🛒 注文シミュレーション設定
 # ------------------------------------------
 with col_right:
     st.subheader("🛒 注文シミュレーション")
@@ -123,7 +121,6 @@ with col_right:
         help="商品のまとめサイズ（幅・高さ・奥行）に対して一律でこのcm数を加算して箱サイズと判定します。"
     )
 
-    # 左のテーブルで選択された商品をデフォルト値としてセット
     selected_ids = st.multiselect(
         "商品を選択してください（左の一覧でチェックしても自動反映されます）", 
         options=df_master.index,
@@ -192,79 +189,93 @@ with col_right:
 
         return best_bounding_boxes
 
-    # 判定ボタン
-    if st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids):
-        items_list = []
-        order_summary_list = []
-        raw_items_weight = Decimal('0')
+    # 判定実行フラグ
+    do_calc = st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids)
 
-        for item_id, qty in item_quantities.items():
-            row = df_master.loc[item_id]
-            order_summary_list.append(f"{row['商品名']} × {qty}")
-            i_weight = clean_decimal(row['重量(kg)'])
-            
-            iw = float(clean_decimal(row['幅(cm)']))
-            ih = float(clean_decimal(row['高さ(cm)']))
-            id_ = float(clean_decimal(row['奥行(cm)']))
+# ==========================================
+# 中部: 判定結果の全画面（全幅）表示エリア
+# ==========================================
+if do_calc and selected_ids:
+    items_list = []
+    order_summary_list = []
+    raw_items_weight = Decimal('0')
 
-            for _ in range(qty):
-                items_list.append({'id': item_id, 'w': iw, 'h': ih, 'd': id_})
-                raw_items_weight += i_weight
+    for item_id, qty in item_quantities.items():
+        row = df_master.loc[item_id]
+        order_summary_list.append(f"{row['商品名']} × {qty}")
+        i_weight = clean_decimal(row['重量(kg)'])
+        
+        iw = float(clean_decimal(row['幅(cm)']))
+        ih = float(clean_decimal(row['高さ(cm)']))
+        id_ = float(clean_decimal(row['奥行(cm)']))
 
-        bounding_candidates = calculate_min_bounding_box(items_list, margin=float(buffer_margin))
-        fitted_boxes = []
+        for _ in range(qty):
+            items_list.append({'id': item_id, 'w': iw, 'h': ih, 'd': id_})
+            raw_items_weight += i_weight
 
-        for _, box in df_boxes.iterrows():
-            b_name = str(box['箱名称'])
-            bw = float(clean_decimal(box['幅(cm)']))
-            bh = float(clean_decimal(box['高さ(cm)']))
-            bd = float(clean_decimal(box['奥行(cm)']))
-            b_weight = clean_decimal(box['箱重量(kg)'])
+    bounding_candidates = calculate_min_bounding_box(items_list, margin=float(buffer_margin))
+    fitted_boxes = []
 
-            box_dims_sorted = sorted([bw, bh, bd])
-            box_volume = bw * bh * bd
+    for _, box in df_boxes.iterrows():
+        b_name = str(box['箱名称'])
+        bw = float(clean_decimal(box['幅(cm)']))
+        bh = float(clean_decimal(box['高さ(cm)']))
+        bd = float(clean_decimal(box['奥行(cm)']))
+        b_weight = clean_decimal(box['箱重量(kg)'])
 
-            for cw, ch, cd, raw_w, raw_h, raw_d in bounding_candidates:
-                cand_dims_sorted = sorted([cw, ch, cd])
-                if (cand_dims_sorted[0] <= box_dims_sorted[0] and
-                    cand_dims_sorted[1] <= box_dims_sorted[1] and
-                    cand_dims_sorted[2] <= box_dims_sorted[2]):
-                    
-                    fitted_boxes.append({
-                        'volume': box_volume,
-                        'name': b_name,
-                        'box_w': bw, 'box_h': bh, 'box_d': bd,
-                        'box_weight': b_weight,
-                        'actual_w': cw, 'actual_h': ch, 'actual_d': cd,
-                        'raw_w': raw_w, 'raw_h': raw_h, 'raw_d': raw_d
-                    })
+        box_dims_sorted = sorted([bw, bh, bd])
+        box_volume = bw * bh * bd
 
-        st.markdown("---")
-        order_str = ", ".join(order_summary_list)
+        for cw, ch, cd, raw_w, raw_h, raw_d in bounding_candidates:
+            cand_dims_sorted = sorted([cw, ch, cd])
+            if (cand_dims_sorted[0] <= box_dims_sorted[0] and
+                cand_dims_sorted[1] <= box_dims_sorted[1] and
+                cand_dims_sorted[2] <= box_dims_sorted[2]):
+                
+                fitted_boxes.append({
+                    'volume': box_volume,
+                    'name': b_name,
+                    'box_w': bw, 'box_h': bh, 'box_d': bd,
+                    'box_weight': b_weight,
+                    'actual_w': cw, 'actual_h': ch, 'actual_d': cd,
+                    'raw_w': raw_w, 'raw_h': raw_h, 'raw_d': raw_d
+                })
 
-        if fitted_boxes:
-            fitted_boxes.sort(key=lambda x: x['volume'])
-            best_box = fitted_boxes[0]
+    st.markdown("---")
+    order_str = ", ".join(order_summary_list)
 
-            total_pack_weight = raw_items_weight + best_box['box_weight']
+    if fitted_boxes:
+        fitted_boxes.sort(key=lambda x: x['volume'])
+        best_box = fitted_boxes[0]
 
-            # --- 隙間空間の計算 ---
-            box_vol = best_box['volume']
-            item_block_vol = best_box['actual_w'] * best_box['actual_h'] * best_box['actual_d']
-            unused_vol = box_vol - item_block_vol
-            
-            fill_rate = (item_block_vol / box_vol) * 100 if box_vol > 0 else 0
-            empty_rate = 100.0 - fill_rate
+        total_pack_weight = raw_items_weight + best_box['box_weight']
 
-            st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
+        # --- 隙間空間の計算 ---
+        box_vol = best_box['volume']
+        item_block_vol = best_box['actual_w'] * best_box['actual_h'] * best_box['actual_d']
+        unused_vol = box_vol - item_block_vol
+        
+        fill_rate = (item_block_vol / box_vol) * 100 if box_vol > 0 else 0
+        empty_rate = 100.0 - fill_rate
 
-            m_col1, m_col2 = st.columns(2)
-            m_col1.metric("選択された箱の寸法", f"{best_box['box_w']} x {best_box['box_h']} x {best_box['box_d']} cm")
-            m_col2.metric("箱の3辺合計", f"{best_box['box_w'] + best_box['box_h'] + best_box['box_d']:.1f} cm")
-            
-            st.metric("梱包総重量 (商品+箱)", f"{total_pack_weight:.2f} kg", f"内 箱自重: {best_box['box_weight']:.2f} kg")
+        # ------------------------------------------
+        # 🎉 最適な箱（全幅表示）
+        # ------------------------------------------
+        st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
 
-            st.write("---")
+        m_col1, m_col2, m_col3 = st.columns(3)
+        m_col1.metric("選択された箱の寸法", f"{best_box['box_w']} x {best_box['box_h']} x {best_box['box_d']} cm")
+        m_col2.metric("箱の3辺合計", f"{best_box['box_w'] + best_box['box_h'] + best_box['box_d']:.1f} cm")
+        m_col3.metric("梱包総重量 (商品+箱)", f"{total_pack_weight:.2f} kg", f"内 箱自重: {best_box['box_weight']:.2f} kg")
+
+        st.write("---")
+        
+        # ------------------------------------------
+        # 📦 選択商品の合算情報 & 💡 空間効率（全幅表示）
+        # ------------------------------------------
+        res_col1, res_col2 = st.columns(2)
+        
+        with res_col1:
             st.write("**📦 選択商品の合算情報**")
             st.info(
                 f"**商品の必要最小寸法 (緩衝材 +{buffer_margin}cm 込):**\n\n"
@@ -273,70 +284,80 @@ with col_right:
                 f"商品のみの合計重量: **{raw_items_weight:.2f} kg**"
             )
 
-            # --- 空間効率分析 ---
+        with res_col2:
             st.write("**💡 箱の空間効率・余白分析**")
             e_col1, e_col2 = st.columns(2)
             e_col1.metric("箱の容量", f"{box_vol/1000:.1f} L", f"{box_vol:,.0f} cm³")
             e_col2.metric("無駄な空間 (隙間)", f"{unused_vol/1000:.1f} L", f"{unused_vol:,.0f} cm³")
             st.metric("箱の空間率", f"商品占有 {fill_rate:.1f}%", f"隙間 {empty_rate:.1f}%", delta_color="inverse")
 
-            # --- ✂️ 箱の加工（切り詰めて小さくする）判定ロジック ---
-            st.write("---")
-            st.write("**✂️ 箱の加工（リサイズ）提案**")
+        # ------------------------------------------
+        # ✂️ 箱の加工（リサイズ）提案（全幅表示）
+        # ------------------------------------------
+        st.write("---")
+        st.write("**✂️ 箱の加工（リサイズ）提案**")
 
-            box_dims = {'幅': best_box['box_w'], '高さ': best_box['box_h'], '奥行': best_box['box_d']}
-            item_dims = sorted([best_box['actual_w'], best_box['actual_h'], best_box['actual_d']], reverse=True)
-            box_dims_sorted = sorted([(v, k) for k, v in box_dims.items()], reverse=True)
+        box_dims = {'幅': best_box['box_w'], '高さ': best_box['box_h'], '奥行': best_box['box_d']}
+        item_dims = sorted([best_box['actual_w'], best_box['actual_h'], best_box['actual_d']], reverse=True)
+        box_dims_sorted = sorted([(v, k) for k, v in box_dims.items()], reverse=True)
 
-            margins = []
-            for (b_val, name), i_val in zip(box_dims_sorted, item_dims):
-                margins.append({
-                    'name': name,
-                    'box_val': b_val,
-                    'item_val': i_val,
-                    'diff': b_val - i_val
-                })
+        margins = []
+        for (b_val, name), i_val in zip(box_dims_sorted, item_dims):
+            margins.append({
+                'name': name,
+                'box_val': b_val,
+                'item_val': i_val,
+                'diff': b_val - i_val
+            })
 
-            margins.sort(key=lambda x: x['diff'], reverse=True)
-            max_margin_edge = margins[0]
+        margins.sort(key=lambda x: x['diff'], reverse=True)
+        max_margin_edge = margins[0]
 
-            if max_margin_edge['diff'] >= 1.0:
-                cut_amount = max_margin_edge['diff']
-                target_edge_name = max_margin_edge['name']
-                original_edge_val = max_margin_edge['box_val']
-                new_edge_val = max_margin_edge['item_val']
+        if max_margin_edge['diff'] >= 1.0:
+            cut_amount = max_margin_edge['diff']
+            target_edge_name = max_margin_edge['name']
+            original_edge_val = max_margin_edge['box_val']
+            new_edge_val = max_margin_edge['item_val']
 
-                original_3sum = best_box['box_w'] + best_box['box_h'] + best_box['box_d']
-                new_3sum = original_3sum - cut_amount
+            original_3sum = best_box['box_w'] + best_box['box_h'] + best_box['box_d']
+            new_3sum = original_3sum - cut_amount
 
+            cut_col1, cut_col2 = st.columns([3, 1])
+            with cut_col1:
                 st.warning(
                     f"✂️ **【切り詰め加工の指示】**\n\n"
                     f"箱の **「{target_edge_name}」** が最も余っています（**{cut_amount:.1f} cm の空き**）。\n\n"
-                    f"👉 **{target_edge_name}を {original_edge_val:.1f} cm ➔ {new_edge_val:.1f} cm へ {cut_amount:.1f} cm 切り詰めて折りたたむ** とジャストフィットします。\n\n"
-                    f"*(加工後3辺合計: **{new_3sum:.1f} cm**)*"
+                    f"👉 **{target_edge_name}を {original_edge_val:.1f} cm ➔ {new_edge_val:.1f} cm へ {cut_amount:.1f} cm 切り詰めて折りたたむ** とジャストフィットします。"
                 )
-            else:
-                st.success("✅ **加工不要**: 各辺とも隙間が少なく、これ以上大きくカットできる辺はありません。")
-
-            st.session_state.history.insert(0, {
-                "注文内容": order_str,
-                "判定結果": best_box['name'],
-                "必要寸法(+マージン込)": f"{best_box['actual_w']:.1f}x{best_box['actual_h']:.1f}x{best_box['actual_d']:.1f}",
-                "加工提案": f"{max_margin_edge['name']}を{max_margin_edge['diff']:.1f}cmカット" if max_margin_edge['diff'] >= 1.0 else "不要",
-                "梱包総重量": f"{total_pack_weight:.2f} kg"
-            })
+            with cut_col2:
+                st.info(
+                    f"**加工後の箱3辺合計:**\n\n"
+                    f"**{new_3sum:.1f} cm** *(元: {original_3sum:.1f} cm)*\n\n"
+                    f"削減容積: **{cut_amount * (box_vol/original_edge_val)/1000:.1f} L**"
+                )
         else:
-            st.error("⚠️ 選択した商品（+緩衝材マージン）が入る箱が「箱マスタ」にありません。より大きいサイズの箱を登録するか、マージン設定を調整してください。")
-            st.session_state.history.insert(0, {
-                "注文内容": order_str,
-                "判定結果": "適合なし (サイズオーバー)",
-                "必要寸法(+マージン込)": "-",
-                "加工提案": "-",
-                "梱包総重量": "-"
-            })
+            st.success("✅ **加工不要**: 各辺とも隙間が少なく、これ以上大きくカットできる辺はありません。")
+
+        # 履歴追加
+        st.session_state.history.insert(0, {
+            "注文内容": order_str,
+            "判定結果": best_box['name'],
+            "必要寸法(+マージン込)": f"{best_box['actual_w']:.1f}x{best_box['actual_h']:.1f}x{best_box['actual_d']:.1f}",
+            "加工提案": f"{max_margin_edge['name']}を{max_margin_edge['diff']:.1f}cmカット" if max_margin_edge['diff'] >= 1.0 else "不要",
+            "梱包総重量": f"{total_pack_weight:.2f} kg"
+        })
+    else:
+        st.error("⚠️ 選択した商品（+緩衝材マージン）が入る箱が「箱マスタ」にありません。より大きいサイズの箱を登録するか、マージン設定を調整してください。")
+        st.session_state.history.insert(0, {
+            "注文内容": order_str,
+            "判定結果": "適合なし (サイズオーバー)",
+            "必要寸法(+マージン込)": "-",
+            "加工提案": "-",
+            "梱包総重量": "-"
+        })
 
 # ==========================================
-# 画面下部: 📜 判定履歴（全幅表示）
+# 下部: 📜 判定履歴（全幅表示）
 # ==========================================
 st.markdown("---")
 st.subheader("📜 判定履歴")
