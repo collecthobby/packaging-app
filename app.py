@@ -149,12 +149,10 @@ with col_right:
 
             for fx, fy, fz in factors:
                 for ow, oh, od in orientations:
-                    # 商品をまとめた集合のサイズ
                     raw_w = ow * fx
                     raw_h = oh * fy
                     raw_d = od * fz
                     
-                    # まとめた集合の全各辺に緩衝材マージンを一律加算
                     bounding_w = raw_w + margin
                     bounding_h = raw_h + margin
                     bounding_d = raw_d + margin
@@ -177,7 +175,6 @@ with col_right:
         items_list = []
         order_summary_list = []
         raw_items_weight = Decimal('0')
-        total_items_volume = 0.0 # 商品純体積
 
         for item_id, qty in item_quantities.items():
             row = df_master.loc[item_id]
@@ -188,14 +185,10 @@ with col_right:
             ih = float(clean_decimal(row['高さ(cm)']))
             id_ = float(clean_decimal(row['奥行(cm)']))
 
-            item_vol = iw * ih * id_
-
             for _ in range(qty):
                 items_list.append({'id': item_id, 'w': iw, 'h': ih, 'd': id_})
                 raw_items_weight += i_weight
-                total_items_volume += item_vol
 
-        # 緩衝材マージンを加算したサイズ候補を取得
         bounding_candidates = calculate_min_bounding_box(items_list, margin=float(buffer_margin))
         fitted_boxes = []
 
@@ -234,10 +227,12 @@ with col_right:
             total_pack_weight = raw_items_weight + best_box['box_weight']
 
             # --- 隙間空間の計算 ---
-            box_vol = best_box['volume'] # 箱の総容積 (cm³)
-            unused_vol = box_vol - total_items_volume # 無駄な空間 (cm³)
-            fill_rate = (total_items_volume / box_vol) * 100 if box_vol > 0 else 0 # 充填率 (%)
-            empty_rate = 100.0 - fill_rate # 空白率 (%)
+            box_vol = best_box['volume']
+            item_block_vol = best_box['actual_w'] * best_box['actual_h'] * best_box['actual_d']
+            unused_vol = box_vol - item_block_vol
+            
+            fill_rate = (item_block_vol / box_vol) * 100 if box_vol > 0 else 0
+            empty_rate = 100.0 - fill_rate
 
             st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
 
@@ -259,19 +254,63 @@ with col_right:
             st.write("**💡 箱の空間効率・余白分析**")
             e_col1, e_col2, e_col3 = st.columns(3)
             e_col1.metric("箱の容量", f"{box_vol/1000:.1f} L", f"{box_vol:,.0f} cm³")
-            e_col2.metric("無駄な空間 (デッドスペース)", f"{unused_vol/1000:.1f} L", f"{unused_vol:,.0f} cm³")
-            e_col3.metric("箱の空間率", f"充填 {fill_rate:.1f}%", f"隙間 {empty_rate:.1f}%", delta_color="inverse")
+            e_col2.metric("無駄な空間 (隙間スペース)", f"{unused_vol/1000:.1f} L", f"{unused_vol:,.0f} cm³")
+            e_col3.metric("箱の空間率", f"商品占有 {fill_rate:.1f}%", f"隙間 {empty_rate:.1f}%", delta_color="inverse")
 
-            if empty_rate > 40:
-                st.warning(f"⚠️ **すき間注意**: 箱に対して商品の占有率が低い ({fill_rate:.1f}%) ため、緩衝材が多く必要になります。")
+            # --- ✂️ 箱の加工（切り詰めて小さくする）判定ロジック ---
+            st.write("---")
+            st.write("**✂️ 箱の加工（リサイズ）提案**")
+
+            # 各辺の差分（余剰空間）を算出
+            box_dims = {'幅': best_box['box_w'], '高さ': best_box['box_h'], '奥行': best_box['box_d']}
+            item_dims = sorted([best_box['actual_w'], best_box['actual_h'], best_box['actual_d']], reverse=True)
+            box_dims_sorted = sorted([(v, k) for k, v in box_dims.items()], reverse=True)
+
+            # 各軸で最も余剰（空き）が大きい辺を特定
+            margins = []
+            for (b_val, name), i_val in zip(box_dims_sorted, item_dims):
+                margins.append({
+                    'name': name,
+                    'box_val': b_val,
+                    'item_val': i_val,
+                    'diff': b_val - i_val
+                })
+
+            margins.sort(key=lambda x: x['diff'], reverse=True)
+            max_margin_edge = margins[0] # 一番余っている辺
+
+            if max_margin_edge['diff'] >= 1.0:
+                cut_amount = max_margin_edge['diff']
+                target_edge_name = max_margin_edge['name']
+                original_edge_val = max_margin_edge['box_val']
+                new_edge_val = max_margin_edge['item_val']
+
+                # 加工後の3辺サイズと3辺合計
+                reduced_vol = unused_vol - (box_vol - (box_vol * (new_edge_val / original_edge_val)))
+                original_3sum = best_box['box_w'] + best_box['box_h'] + best_box['box_d']
+                new_3sum = original_3sum - cut_amount
+
+                cut_col1, cut_col2 = st.columns([2, 1])
+                with cut_col1:
+                    st.warning(
+                        f"✂️ **【切り詰め加工の指示】**\n\n"
+                        f"箱の **「{target_edge_name}」** が最も余っています（**{cut_amount:.1f} cm の空き**）。\n\n"
+                        f"👉 **{target_edge_name}を {original_edge_val:.1f} cm ➔ {new_edge_val:.1f} cm へ {cut_amount:.1f} cm 切り詰めて折りたたむ** とジャストフィットします。"
+                    )
+                with cut_col2:
+                    st.info(
+                        f"**加工後の箱3辺合計:**\n\n"
+                        f"**{new_3sum:.1f} cm** *(元: {original_3sum:.1f} cm)*\n\n"
+                        f"削減容積: **{cut_amount * (box_vol/original_edge_val)/1000:.1f} L**"
+                    )
             else:
-                st.success(f"✅ **フィット良好**: 効率よく梱包されています（隙間率 {empty_rate:.1f}%）。")
+                st.success("✅ **加工不要**: 各辺とも隙間が少なく、これ以上大きくカットできる辺はありません。")
 
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
                 "判定結果": best_box['name'],
                 "必要寸法(+マージン込)": f"{best_box['actual_w']:.1f}x{best_box['actual_h']:.1f}x{best_box['actual_d']:.1f}",
-                "無駄な空間": f"{unused_vol/1000:.1f} L ({empty_rate:.1f}%)",
+                "加工提案": f"{max_margin_edge['name']}を{max_margin_edge['diff']:.1f}cmカット" if max_margin_edge['diff'] >= 1.0 else "不要",
                 "梱包総重量": f"{total_pack_weight:.2f} kg"
             })
         else:
@@ -280,7 +319,7 @@ with col_right:
                 "注文内容": order_str,
                 "判定結果": "適合なし (サイズオーバー)",
                 "必要寸法(+マージン込)": "-",
-                "無駄な空間": "-",
+                "加工提案": "-",
                 "梱包総重量": "-"
             })
 
