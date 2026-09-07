@@ -281,7 +281,8 @@ if st.button("🚀 推奨サイズを判定する", type="primary", use_containe
                 'diff': b_val - i_val
             })
 
-        margins.sort(key=x: x['diff'], reverse=True)
+        # ソート処理の修正（lambda を追加）
+        margins.sort(key=lambda x: x['diff'], reverse=True)
         max_margin_edge = margins[0]
 
         if max_margin_edge['diff'] >= 1.0:
