@@ -94,6 +94,16 @@ with col_left:
 with col_right:
     st.subheader("🛒 注文シミュレーション")
     
+    # --- 緩衝材マージンの設定条件 ---
+    buffer_margin = st.number_input(
+        "🛡️ 緩衝材マージン (まとめた商品サイズの全各辺に加算する厚み: cm)",
+        min_value=0.0,
+        max_value=10.0,
+        value=2.0,
+        step=0.5,
+        help="商品のまとめサイズ（幅・高さ・奥行）に対して一律でこのcm数を加算して箱サイズと判定します。"
+    )
+    
     selected_ids = st.multiselect(
         "商品を選択してください（複数選択可）", 
         options=df_master.index,
@@ -116,8 +126,8 @@ with col_right:
             )
             item_quantities[item_id] = qty
 
-    def calculate_min_bounding_box(items_list):
-        """商品のリストから全パッキングパターンを算出し、最小の外包サイズとそれに適合する箱を返す"""
+    def calculate_min_bounding_box(items_list, margin):
+        """商品のリストから全パッキングパターンを算出し、マージンを加算した最小外包寸法を返す"""
         total_items = len(items_list)
         
         def get_orientations(w, h, d):
@@ -139,15 +149,27 @@ with col_right:
 
             for fx, fy, fz in factors:
                 for ow, oh, od in orientations:
-                    bounding_w = ow * fx
-                    bounding_h = oh * fy
-                    bounding_d = od * fz
-                    best_bounding_boxes.append((bounding_w, bounding_h, bounding_d))
+                    # 商品をまとめた集合のサイズ
+                    raw_w = ow * fx
+                    raw_h = oh * fy
+                    raw_d = od * fz
+                    
+                    # まとめた集合の全各辺に緩衝材マージンを一律加算
+                    bounding_w = raw_w + margin
+                    bounding_h = raw_h + margin
+                    bounding_d = raw_d + margin
+                    
+                    best_bounding_boxes.append((bounding_w, bounding_h, bounding_d, raw_w, raw_h, raw_d))
         else:
             sum_w = sum([it['w'] for it in items_list])
             max_h = max([it['h'] for it in items_list])
             max_d = max([it['d'] for it in items_list])
-            best_bounding_boxes.append((sum_w, max_h, max_d))
+            
+            bounding_w = sum_w + margin
+            bounding_h = max_h + margin
+            bounding_d = max_d + margin
+            
+            best_bounding_boxes.append((bounding_w, bounding_h, bounding_d, sum_w, max_h, max_d))
 
         return best_bounding_boxes
 
@@ -155,7 +177,7 @@ with col_right:
         items_list = []
         order_summary_list = []
         raw_items_weight = Decimal('0')
-        total_items_volume = 0.0 # 商品の純体積（合計）
+        total_items_volume = 0.0 # 商品純体積
 
         for item_id, qty in item_quantities.items():
             row = df_master.loc[item_id]
@@ -173,7 +195,8 @@ with col_right:
                 raw_items_weight += i_weight
                 total_items_volume += item_vol
 
-        bounding_candidates = calculate_min_bounding_box(items_list)
+        # 緩衝材マージンを加算したサイズ候補を取得
+        bounding_candidates = calculate_min_bounding_box(items_list, margin=float(buffer_margin))
         fitted_boxes = []
 
         for _, box in df_boxes.iterrows():
@@ -186,7 +209,7 @@ with col_right:
             box_dims_sorted = sorted([bw, bh, bd])
             box_volume = bw * bh * bd
 
-            for cw, ch, cd in bounding_candidates:
+            for cw, ch, cd, raw_w, raw_h, raw_d in bounding_candidates:
                 cand_dims_sorted = sorted([cw, ch, cd])
                 if (cand_dims_sorted[0] <= box_dims_sorted[0] and
                     cand_dims_sorted[1] <= box_dims_sorted[1] and
@@ -197,7 +220,8 @@ with col_right:
                         'name': b_name,
                         'box_w': bw, 'box_h': bh, 'box_d': bd,
                         'box_weight': b_weight,
-                        'actual_w': cw, 'actual_h': ch, 'actual_d': cd
+                        'actual_w': cw, 'actual_h': ch, 'actual_d': cd,
+                        'raw_w': raw_w, 'raw_h': raw_h, 'raw_d': raw_d
                     })
 
         st.markdown("---")
@@ -224,10 +248,14 @@ with col_right:
             st.write("---")
             st.write("**📦 選択商品の合算情報**")
             p_col1, p_col2 = st.columns(2)
-            p_col1.info(f"**商品の必要最小寸法 (W × H × D):**\n\n**{best_box['actual_w']:.1f} × {best_box['actual_h']:.1f} × {best_box['actual_d']:.1f} cm**")
+            p_col1.info(
+                f"**商品の必要最小寸法 (緩衝材 +{buffer_margin}cm 込):**\n\n"
+                f"**{best_box['actual_w']:.1f} × {best_box['actual_h']:.1f} × {best_box['actual_d']:.1f} cm**\n\n"
+                f"*(商品自体の実寸まとめ: {best_box['raw_w']:.1f} × {best_box['raw_h']:.1f} × {best_box['raw_d']:.1f} cm)*"
+            )
             p_col2.info(f"**商品のみの合計重量:**\n\n**{raw_items_weight:.2f} kg**")
 
-            # --- 新機能: 空間効率分析 ---
+            # --- 空間効率分析 ---
             st.write("**💡 箱の空間効率・余白分析**")
             e_col1, e_col2, e_col3 = st.columns(3)
             e_col1.metric("箱の容量", f"{box_vol/1000:.1f} L", f"{box_vol:,.0f} cm³")
@@ -235,23 +263,23 @@ with col_right:
             e_col3.metric("箱の空間率", f"充填 {fill_rate:.1f}%", f"隙間 {empty_rate:.1f}%", delta_color="inverse")
 
             if empty_rate > 40:
-                st.warning(f"⚠️ **すき間注意**: 箱に対して商品の占有率が低い ({fill_rate:.1f}%) ため、緩衝材（エアクッション等）が多く必要になります。")
+                st.warning(f"⚠️ **すき間注意**: 箱に対して商品の占有率が低い ({fill_rate:.1f}%) ため、緩衝材が多く必要になります。")
             else:
                 st.success(f"✅ **フィット良好**: 効率よく梱包されています（隙間率 {empty_rate:.1f}%）。")
 
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
                 "判定結果": best_box['name'],
-                "必要寸法(cm)": f"{best_box['actual_w']:.1f}x{best_box['actual_h']:.1f}x{best_box['actual_d']:.1f}",
+                "必要寸法(+マージン込)": f"{best_box['actual_w']:.1f}x{best_box['actual_h']:.1f}x{best_box['actual_d']:.1f}",
                 "無駄な空間": f"{unused_vol/1000:.1f} L ({empty_rate:.1f}%)",
                 "梱包総重量": f"{total_pack_weight:.2f} kg"
             })
         else:
-            st.error("⚠️ 選択した商品が入る箱が「箱マスタ」にありません。より大きいサイズの箱を登録してください。")
+            st.error("⚠️ 選択した商品（+緩衝材マージン）が入る箱が「箱マスタ」にありません。より大きいサイズの箱を登録するか、マージン設定を調整してください。")
             st.session_state.history.insert(0, {
                 "注文内容": order_str,
                 "判定結果": "適合なし (サイズオーバー)",
-                "必要寸法(cm)": "-",
+                "必要寸法(+マージン込)": "-",
                 "無駄な空間": "-",
                 "梱包総重量": "-"
             })
