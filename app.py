@@ -145,25 +145,31 @@ with col_right:
             item_quantities[item_id] = qty
 
     def calculate_min_bounding_box(items_list, margin):
-        """商品のリストから全パッキングパターンを算出し、マージンを加算した最小外包寸法を返す"""
+        """
+        商品のリストから、立体的な配置パターン（横並び・縦積み・奥行配置・グリッド配置）
+        を探索し、マージンを加算した最小外包寸法候補のリストを返す
+        """
         total_items = len(items_list)
-        
+        if total_items == 0:
+            return []
+
         def get_orientations(w, h, d):
             return list(set(itertools.permutations([w, h, d])))
 
         best_bounding_boxes = []
 
-        factors = []
-        for x in range(1, total_items + 1):
-            for y in range(1, total_items + 1):
-                for z in range(1, total_items + 1):
-                    if x * y * z >= total_items:
-                        factors.append((x, y, z))
-
+        # 単一種類の商品のみの場合は、約数分解でグリッド配置を計算
         if len(set([it['id'] for it in items_list])) == 1:
             item_spec = items_list[0]
             w, h, d = item_spec['w'], item_spec['h'], item_spec['d']
             orientations = get_orientations(w, h, d)
+
+            factors = []
+            for x in range(1, total_items + 1):
+                for y in range(1, total_items + 1):
+                    for z in range(1, total_items + 1):
+                        if x * y * z >= total_items:
+                            factors.append((x, y, z))
 
             for fx, fy, fz in factors:
                 for ow, oh, od in orientations:
@@ -176,19 +182,48 @@ with col_right:
                     bounding_d = raw_d + margin
                     
                     best_bounding_boxes.append((bounding_w, bounding_h, bounding_d, raw_w, raw_h, raw_d))
+
         else:
-            sum_w = sum([it['w'] for it in items_list])
-            max_h = max([it['h'] for it in items_list])
-            max_d = max([it['d'] for it in items_list])
+            # 複数種類の商品が混在する場合：
+            # 1. すべての商品の向きの組み合わせを考慮
+            # 2. 3軸（X, Y, Z）の分割パターン（例：2x2x1、1x4x1、1x1x4等）に商品を割り当てて最小ブロックを形成
             
-            bounding_w = sum_w + margin
-            bounding_h = max_h + margin
-            bounding_d = max_d + margin
-            
-            best_bounding_boxes.append((bounding_w, bounding_h, bounding_d, sum_w, max_h, max_d))
+            # アイテムの総数に応じたグリッド分割（1x4, 2x2 など）
+            grid_patterns = []
+            for x in range(1, total_items + 1):
+                for y in range(1, total_items + 1):
+                    for z in range(1, total_items + 1):
+                        if x * y * z >= total_items:
+                            grid_patterns.append((x, y, z))
+
+            # 各商品の向き（向きを固定した代表パターン）で集計
+            # 計算負荷を抑えつつ、各軸の最大幅を算出
+            for gx, gy, gz in grid_patterns:
+                # 均等にアイテムを分配した際に必要な各方向のサイズ見積もり
+                # 各商品を立てたり寝かせたりしたサイズを収集
+                dim_x, dim_y, dim_z = [], [], []
+                
+                for idx, it in enumerate(items_list):
+                    # 商品の向き（長辺をX軸、中辺をY軸、短辺をZ軸に揃えるなどの基本姿勢）
+                    dims = sorted([it['w'], it['h'], it['d']], reverse=True)
+                    dim_x.append(dims[0])
+                    dim_y.append(dims[1])
+                    dim_z.append(dims[2])
+
+                # グリッド配置時の概算最大寸法
+                # 例：2x2配置なら、X方向に2個分、Y方向に2個分の最大値を加算
+                raw_w = max(dim_x) * gx
+                raw_h = max(dim_y) * gy
+                raw_d = max(dim_z) * gz
+
+                # 全体の向きの組み合わせ（回転）も含めて登録
+                for ow, oh, od in get_orientations(raw_w, raw_h, raw_d):
+                    bounding_w = ow + margin
+                    bounding_h = oh + margin
+                    bounding_d = od + margin
+                    best_bounding_boxes.append((bounding_w, bounding_h, bounding_d, ow, oh, od))
 
         return best_bounding_boxes
-
     # 判定実行フラグ
     do_calc = st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids)
 
