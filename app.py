@@ -84,12 +84,40 @@ def load_data():
     # 3. 各ルール別送料マスタの読み込み（複数シート対応）
     shipping_masters = {}
     
-    # 国内マスタ
+    # --------------------------------------------------
+    # 1. ヤマト宅急便（旧：送料マスタ）
+    # --------------------------------------------------
     try:
-        df_dom = pd.read_csv(get_sheet_url("ヤフオクおてがる配送(ヤマト運輸)")).dropna(how="all")
-        df_dom.columns = df_dom.columns.str.strip()
-        shipping_masters["🇯🇵 国内発送 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
-    except:
+        # 🔻 get_sheet_url("新しいシート名") に変更します
+        df_yamato = pd.read_csv(get_sheet_url("ヤフオクおてがる配送(日本郵便)")).dropna(how="all")
+        df_yamato.columns = df_yamato.columns.str.strip()
+        # 🔻 画面上の表示名を設定します
+        shipping_masters["🚚 ヤフオクおてがる配送(日本郵便)"] = {"df": df_yamato, "type": "dom"}
+    except Exception as e:
+        pass
+
+    # --------------------------------------------------
+    # 2. FedEx (旧：海外送料_5000)
+    # --------------------------------------------------
+    try:
+        df_fedex = pd.read_csv(get_sheet_url("FedEx_国内海外")).dropna(how="all")
+        df_fedex.columns = df_fedex.columns.str.strip()
+        shipping_masters["✈️ FedEx (容積重量 ÷5000)"] = {
+            "df": df_fedex, 
+            "type": "intl", 
+            "divisor": 5000.0  # ※容積重量の計算係数
+        }
+    except Exception as e:
+        pass
+
+    # --------------------------------------------------
+    # 3. 佐川急便 (旧：海外送料_8000)
+    # --------------------------------------------------
+    try:
+        df_sagawa = pd.read_csv(get_sheet_url("佐川急便_飛脚")).dropna(how="all")
+        df_sagawa.columns = df_sagawa.columns.str.strip()
+        shipping_masters["🚛 佐川急便 (サイズ基準)"] = {"df": df_sagawa, "type": "dom"}
+    except Exception as e:
         pass
 　　　　
     # 海外マスタ (÷5000)
