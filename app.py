@@ -90,7 +90,6 @@ def load_data():
         df_dom.columns = df_dom.columns.str.strip()
         shipping_masters["🇯🇵 国内発送 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
     except:
-        pass
 
 　　try:
         df_dom = pd.read_csv(get_sheet_url("ヤフオクおてがる配送(日本郵便)")).dropna(how="all")
