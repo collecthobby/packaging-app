@@ -90,7 +90,7 @@ def load_data():
         df_dom.columns = df_dom.columns.str.strip()
         shipping_masters["🇯🇵 国内発送 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
     except:
-　　　　 pass
+        pass
 　　　　
     # 海外マスタ (÷5000)
     try:
