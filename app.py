@@ -95,6 +95,15 @@ def load_data():
         shipping_masters["🚚 ヤフオクおてがる配送(日本郵便)"] = {"df": df_yamato, "type": "dom"}
     except Exception as e:
         pass
+        
+    try:
+        # 🔻 get_sheet_url("新しいシート名") に変更します
+        df_yamato = pd.read_csv(get_sheet_url("ヤフオクおてがる配送(ヤマト運輸)")).dropna(how="all")
+        df_yamato.columns = df_yamato.columns.str.strip()
+        # 🔻 画面上の表示名を設定します
+        shipping_masters["🚚 宅急便(EAZY)"] = {"df": df_yamato, "type": "dom"}
+    except Exception as e:
+        pass
 
     # --------------------------------------------------
     # 2. FedEx (旧：海外送料_5000)
