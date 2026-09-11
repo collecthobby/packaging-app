@@ -101,7 +101,7 @@ def load_data():
         df_yamato = pd.read_csv(get_sheet_url("ヤフオクおてがる配送(ヤマト運輸)")).dropna(how="all")
         df_yamato.columns = df_yamato.columns.str.strip()
         # 🔻 画面上の表示名を設定します
-        shipping_masters["🚚 宅急便(EAZY)"] = {"df": df_yamato, "type": "dom"}
+        shipping_masters["🚚 ヤフオクおてがる配送(ヤマト運輸)"] = {"df": df_yamato, "type": "dom"}
     except Exception as e:
         pass
 
