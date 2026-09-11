@@ -119,7 +119,6 @@ def load_data():
         shipping_masters["🚛 佐川急便 (サイズ基準)"] = {"df": df_sagawa, "type": "dom"}
     except Exception as e:
         pass
-　　　　
     # 海外マスタ (÷5000)
     try:
         df_intl5000 = pd.read_csv(get_sheet_url("海外送料_5000")).dropna(how="all")
