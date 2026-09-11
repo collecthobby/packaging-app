@@ -7,7 +7,7 @@ import itertools
 
 # 画面基本設定
 st.set_page_config(page_title="梱包サイズ最適化システム", page_icon="📦", layout="wide")
-st.title("📦 梱包サイズ最適化システム（全マスタ動的同期）")
+st.title("📦 梱包サイズ最適化システム（国内外・運送会社別・送料自動計算対応）")
 
 # --- セッション状態の初期化 ---
 if "history" not in st.session_state:
@@ -37,6 +37,7 @@ def get_sheet_url(sheet_name: str) -> str:
     return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={encoded_name}"
 
 def load_data():
+    # 1. 商品マスタ
     url_items = get_sheet_url("商品マスタ")
     df_items = pd.read_csv(url_items)
     df_items = df_items.dropna(how="all")
@@ -44,12 +45,12 @@ def load_data():
     df_items = df_items.loc[:, ~df_items.columns.duplicated()]
     df_items = df_items.set_index("商品ID")
     
+    # 2. 箱マスタ
     url_boxes = get_sheet_url("箱マスタ")
     df_boxes = pd.read_csv(url_boxes)
     df_boxes = df_boxes.dropna(how="all")
     df_boxes.columns = df_boxes.columns.str.strip()
     
-    # 列名の自動吸収
     box_col_map = {}
     for col in df_boxes.columns:
         if "箱" in col and "名" in col:
@@ -65,10 +66,29 @@ def load_data():
     
     df_boxes = df_boxes.rename(columns=box_col_map)
     df_boxes = df_boxes.loc[:, ~df_boxes.columns.duplicated()]
-    return df_items, df_boxes
+
+    # 3. 国内送料マスタ
+    df_shipping_dom = pd.DataFrame()
+    try:
+        url_shipping_dom = get_sheet_url("送料マスタ")
+        df_shipping_dom = pd.read_csv(url_shipping_dom).dropna(how="all")
+        df_shipping_dom.columns = df_shipping_dom.columns.str.strip()
+    except:
+        pass
+
+    # 4. 海外送料マスタ
+    df_shipping_intl = pd.DataFrame()
+    try:
+        url_shipping_intl = get_sheet_url("海外送料マスタ")
+        df_shipping_intl = pd.read_csv(url_shipping_intl).dropna(how="all")
+        df_shipping_intl.columns = df_shipping_intl.columns.str.strip()
+    except:
+        pass
+
+    return df_items, df_boxes, df_shipping_dom, df_shipping_intl
 
 try:
-    df_master, df_boxes = load_data()
+    df_master, df_boxes, df_shipping_dom, df_shipping_intl = load_data()
 except Exception as e:
     st.error("⚠️ スプレッドシートの読み込みに失敗しました。詳細なエラーは以下の通りです：")
     st.exception(e)
@@ -80,11 +100,11 @@ except Exception as e:
 col_left, col_right = st.columns([5, 7])
 
 # ------------------------------------------
-# 左カラム: 📋 登録マスタ情報（チェックボックス連動）
+# 左カラム: 📋 登録マスタ情報
 # ------------------------------------------
 with col_left:
     st.subheader("📋 登録マスタ情報")
-    tab1, tab2 = st.tabs(["📦 商品マスタ (選択連動)", "📐 箱マスタ"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📦 商品", "📐 箱", "🇯🇵 国内送料", "🌏 海外送料"])
     
     selected_from_table = []
     with tab1:
@@ -102,6 +122,18 @@ with col_left:
 
     with tab2:
         st.dataframe(df_boxes, use_container_width=True)
+
+    with tab3:
+        if not df_shipping_dom.empty:
+            st.dataframe(df_shipping_dom, use_container_width=True)
+        else:
+            st.warning("⚠️ シート『送料マスタ』が見つかりません。")
+
+    with tab4:
+        if not df_shipping_intl.empty:
+            st.dataframe(df_shipping_intl, use_container_width=True)
+        else:
+            st.warning("⚠️ シート『海外送料マスタ』が見つかりません。")
         
     if st.button("🔄 最新データに更新"):
         st.rerun()
@@ -112,14 +144,59 @@ with col_left:
 with col_right:
     st.subheader("🛒 注文シミュレーション")
 
-    buffer_margin = st.number_input(
-        "🛡️ 緩衝材マージン (全各辺加算: cm)",
-        min_value=0.0,
-        max_value=10.0,
-        value=2.0,
-        step=0.5,
-        help="商品のまとめサイズ（幅・高さ・奥行）に対して一律でこのcm数を加算して箱サイズと判定します。"
+    # 1. 発送モード切り替え（国内 / 海外）
+    ship_mode = st.radio(
+        "🌐 発送区分の選択",
+        ["🇯🇵 国内発送", "🌏 海外発送"],
+        horizontal=True
     )
+
+    # 2. 海外発送時の容積重量計算係数の選択 (5000 / 8000 / カスタム)
+    vol_factor = 5000.0
+    if ship_mode == "🌏 海外発送":
+        vf_choice = st.radio(
+            "📐 容積重量の計算係数 (÷割数)",
+            ["5000 (標準/EMS/クーリエ等)", "8000 (特別便等)", "指定数値入力"],
+            horizontal=True,
+            help="容積重量 = (縦cm × 横cm × 高さcm) ÷ 係数 で計算します。"
+        )
+        if "5000" in vf_choice:
+            vol_factor = 5000.0
+        elif "8000" in vf_choice:
+            vol_factor = 8000.0
+        else:
+            vol_factor = float(st.number_input("任意の計算係数を入力", min_value=1000, max_value=20000, value=5000, step=500))
+
+    cfg_col1, cfg_col2 = st.columns(2)
+    with cfg_col1:
+        buffer_margin = st.number_input(
+            "🛡️ 緩衝材マージン (全各辺加算: cm)",
+            min_value=0.0,
+            max_value=10.0,
+            value=2.0,
+            step=0.5,
+            help="商品のまとめサイズ（幅・高さ・奥行）に対して一律でこのcm数を加算して箱サイズと判定します。"
+        )
+
+    with cfg_col2:
+        # モードに応じた送料マスタと配送会社選択オプションの生成
+        if ship_mode == "🇯🇵 国内発送":
+            active_shipping_df = df_shipping_dom
+            ignore_cols = ["サイズ区分", "サイズ", "重量上限(kg)", "重量上限"]
+        else:
+            active_shipping_df = df_shipping_intl
+            ignore_cols = ["重量上限(kg)", "重量上限", "3辺合計上限(cm)", "3辺合計上限"]
+
+        carrier_options = []
+        if not active_shipping_df.empty:
+            carrier_options = [c for c in active_shipping_df.columns if c not in ignore_cols]
+        if not carrier_options:
+            carrier_options = ["標準配送"]
+
+        selected_carrier = st.selectbox(
+            "🚚 配送会社 / 地帯（ゾーン）を選択",
+            options=carrier_options
+        )
 
     selected_ids = st.multiselect(
         "商品を選択してください（左の一覧でチェックしても自動反映されます）", 
@@ -145,10 +222,6 @@ with col_right:
             item_quantities[item_id] = qty
 
     def calculate_min_bounding_box(items_list, margin):
-        """
-        商品のリストから、立体的な配置パターン（横並び・縦積み・奥行配置・グリッド配置）
-        を探索し、マージンを加算した最小外包寸法候補のリストを返す
-        """
         total_items = len(items_list)
         if total_items == 0:
             return []
@@ -158,7 +231,6 @@ with col_right:
 
         best_bounding_boxes = []
 
-        # 単一種類の商品のみの場合は、約数分解でグリッド配置を計算
         if len(set([it['id'] for it in items_list])) == 1:
             item_spec = items_list[0]
             w, h, d = item_spec['w'], item_spec['h'], item_spec['d']
@@ -184,11 +256,6 @@ with col_right:
                     best_bounding_boxes.append((bounding_w, bounding_h, bounding_d, raw_w, raw_h, raw_d))
 
         else:
-            # 複数種類の商品が混在する場合：
-            # 1. すべての商品の向きの組み合わせを考慮
-            # 2. 3軸（X, Y, Z）の分割パターン（例：2x2x1、1x4x1、1x1x4等）に商品を割り当てて最小ブロックを形成
-            
-            # アイテムの総数に応じたグリッド分割（1x4, 2x2 など）
             grid_patterns = []
             for x in range(1, total_items + 1):
                 for y in range(1, total_items + 1):
@@ -196,27 +263,19 @@ with col_right:
                         if x * y * z >= total_items:
                             grid_patterns.append((x, y, z))
 
-            # 各商品の向き（向きを固定した代表パターン）で集計
-            # 計算負荷を抑えつつ、各軸の最大幅を算出
             for gx, gy, gz in grid_patterns:
-                # 均等にアイテムを分配した際に必要な各方向のサイズ見積もり
-                # 各商品を立てたり寝かせたりしたサイズを収集
                 dim_x, dim_y, dim_z = [], [], []
                 
                 for idx, it in enumerate(items_list):
-                    # 商品の向き（長辺をX軸、中辺をY軸、短辺をZ軸に揃えるなどの基本姿勢）
                     dims = sorted([it['w'], it['h'], it['d']], reverse=True)
                     dim_x.append(dims[0])
                     dim_y.append(dims[1])
                     dim_z.append(dims[2])
 
-                # グリッド配置時の概算最大寸法
-                # 例：2x2配置なら、X方向に2個分、Y方向に2個分の最大値を加算
                 raw_w = max(dim_x) * gx
                 raw_h = max(dim_y) * gy
                 raw_d = max(dim_z) * gz
 
-                # 全体の向きの組み合わせ（回転）も含めて登録
                 for ow, oh, od in get_orientations(raw_w, raw_h, raw_d):
                     bounding_w = ow + margin
                     bounding_h = oh + margin
@@ -224,6 +283,60 @@ with col_right:
                     best_bounding_boxes.append((bounding_w, bounding_h, bounding_d, ow, oh, od))
 
         return best_bounding_boxes
+
+    # --- 送料計算ロジック（国内・海外両対応） ---
+    def get_shipping_cost(total_3sum, total_weight_kg, box_volume_cm3, carrier_name, is_intl, divisor):
+        if active_shipping_df.empty or carrier_name not in active_shipping_df.columns:
+            return 0, "判定不可", 0.0
+
+        df_sorted = active_shipping_df.copy()
+
+        if not is_intl:
+            # 【国内発送】 3辺合計（サイズ区分）優先で判定
+            size_col = next((c for c in df_sorted.columns if "サイズ" in c), None)
+            weight_col = next((c for c in df_sorted.columns if "重量" in c), None)
+
+            if not size_col:
+                return 0, "判定不可", 0.0
+
+            df_sorted[size_col] = df_sorted[size_col].apply(lambda x: float(clean_decimal(x)))
+            if weight_col:
+                df_sorted[weight_col] = df_sorted[weight_col].apply(lambda x: float(clean_decimal(x)))
+            df_sorted = df_sorted.sort_values(by=size_col)
+
+            for _, row in df_sorted.iterrows():
+                sz_limit = row[size_col]
+                wt_limit = float(row[weight_col]) if weight_col else 999.0
+                if total_3sum <= sz_limit and float(total_weight_kg) <= wt_limit:
+                    cost = int(clean_decimal(row[carrier_name]))
+                    return cost, f"{int(sz_limit)}サイズ", 0.0
+
+        else:
+            # 【海外発送】 容積重量 (縦x横x高 / 指定係数) と 実重量 の大きい方を適用して判定
+            volumetric_weight = box_volume_cm3 / float(divisor)
+            effective_weight = max(float(total_weight_kg), volumetric_weight)
+
+            weight_col = next((c for c in df_sorted.columns if "重量" in c), None)
+            size_col = next((c for c in df_sorted.columns if "3辺" in c or "サイズ" in c), None)
+
+            if not weight_col:
+                return 0, "判定不可", volumetric_weight
+
+            df_sorted[weight_col] = df_sorted[weight_col].apply(lambda x: float(clean_decimal(x)))
+            if size_col:
+                df_sorted[size_col] = df_sorted[size_col].apply(lambda x: float(clean_decimal(x)))
+            df_sorted = df_sorted.sort_values(by=weight_col)
+
+            for _, row in df_sorted.iterrows():
+                wt_limit = row[weight_col]
+                sz_limit = float(row[size_col]) if size_col else 999.0
+
+                if effective_weight <= wt_limit and total_3sum <= sz_limit:
+                    cost = int(clean_decimal(row[carrier_name]))
+                    return cost, f"~{wt_limit:.1f}kg区分", volumetric_weight
+
+        return 0, "規格外(オーバー)", volumetric_weight if is_intl else 0.0
+
     # 判定実行フラグ
     do_calc = st.button("🚀 推奨サイズを判定する", type="primary", use_container_width=True, disabled=not selected_ids)
 
@@ -278,12 +391,20 @@ if do_calc and selected_ids:
 
     st.markdown("---")
     order_str = ", ".join(order_summary_list)
+    is_intl_mode = (ship_mode == "🌏 海外発送")
 
     if fitted_boxes:
         fitted_boxes.sort(key=lambda x: x['volume'])
         best_box = fitted_boxes[0]
 
         total_pack_weight = raw_items_weight + best_box['box_weight']
+        box_3sum = best_box['box_w'] + best_box['box_h'] + best_box['box_d']
+        box_volume_cm3 = best_box['volume']
+
+        # 送料の自動算出
+        shipping_cost, size_category, vol_weight = get_shipping_cost(
+            box_3sum, total_pack_weight, box_volume_cm3, selected_carrier, is_intl_mode, vol_factor
+        )
 
         # --- 隙間空間の計算 ---
         box_vol = best_box['volume']
@@ -296,17 +417,27 @@ if do_calc and selected_ids:
         # ------------------------------------------
         # 🎉 最適な箱（全幅表示）
         # ------------------------------------------
-        st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
+        st.success(f"### 🎉 最適な箱: 【{best_box['name']}】 ({ship_mode})")
 
-        m_col1, m_col2, m_col3 = st.columns(3)
+        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
         m_col1.metric("選択された箱の寸法", f"{best_box['box_w']} x {best_box['box_h']} x {best_box['box_d']} cm")
-        m_col2.metric("箱の3辺合計", f"{best_box['box_w'] + best_box['box_h'] + best_box['box_d']:.1f} cm")
-        m_col3.metric("梱包総重量 (商品+箱)", f"{total_pack_weight:.2f} kg", f"内 箱自重: {best_box['box_weight']:.2f} kg")
+        m_col2.metric("箱の3辺合計", f"{box_3sum:.1f} cm", f"区分: {size_category}")
+        
+        # 重量表示（海外モード時は実重量と容積重量を併記）
+        if is_intl_mode:
+            applied_wt = max(float(total_pack_weight), vol_weight)
+            weight_sub = f"実重量:{total_pack_weight:.2f}kg / 容積重量(÷{int(vol_factor)}):{vol_weight:.2f}kg"
+            m_col3.metric("梱包算出重量 (適用)", f"{applied_wt:.2f} kg", weight_sub)
+        else:
+            m_col3.metric("梱包総重量 (商品+箱)", f"{total_pack_weight:.2f} kg", f"内 箱自重: {best_box['box_weight']:.2f} kg")
+        
+        shipping_str = f"¥{shipping_cost:,}" if shipping_cost > 0 else "規格外/未設定"
+        m_col4.metric(f"🚚 {selected_carrier} 送料", shipping_str)
 
         st.write("---")
         
         # ------------------------------------------
-        # 📦 選択商品の合算情報 & 💡 空間効率（全幅表示）
+        # 📦 選択商品の合算情報 & 💡 空間効率
         # ------------------------------------------
         res_col1, res_col2 = st.columns(2)
         
@@ -327,7 +458,7 @@ if do_calc and selected_ids:
             st.metric("箱の空間率", f"商品占有 {fill_rate:.1f}%", f"隙間 {empty_rate:.1f}%", delta_color="inverse")
 
         # ------------------------------------------
-        # ✂️ 箱の加工（リサイズ）提案（全幅表示）
+        # ✂️ 箱の加工（リサイズ）提案
         # ------------------------------------------
         st.write("---")
         st.write("**✂️ 箱の加工（リサイズ）提案**")
@@ -354,8 +485,17 @@ if do_calc and selected_ids:
             original_edge_val = max_margin_edge['box_val']
             new_edge_val = max_margin_edge['item_val']
 
-            original_3sum = best_box['box_w'] + best_box['box_h'] + best_box['box_d']
-            new_3sum = original_3sum - cut_amount
+            new_3sum = box_3sum - cut_amount
+            new_vol_cm3 = box_vol * (new_edge_val / original_edge_val)
+            
+            new_cost, new_size_cat, _ = get_shipping_cost(
+                new_3sum, total_pack_weight, new_vol_cm3, selected_carrier, is_intl_mode, vol_factor
+            )
+
+            cost_diff_msg = ""
+            if new_cost < shipping_cost and new_cost > 0:
+                saved = shipping_cost - new_cost
+                cost_diff_msg = f"\n\n💰 **送料ダウンチャンス!** カットすると `{size_category}` ➔ `{new_size_cat}` に下がり **{saved:,}円節約** できます！"
 
             cut_col1, cut_col2 = st.columns([3, 1])
             with cut_col1:
@@ -363,11 +503,12 @@ if do_calc and selected_ids:
                     f"✂️ **【切り詰め加工の指示】**\n\n"
                     f"箱の **「{target_edge_name}」** が最も余っています（**{cut_amount:.1f} cm の空き**）。\n\n"
                     f"👉 **{target_edge_name}を {original_edge_val:.1f} cm ➔ {new_edge_val:.1f} cm へ {cut_amount:.1f} cm 切り詰めて折りたたむ** とジャストフィットします。"
+                    f"{cost_diff_msg}"
                 )
             with cut_col2:
                 st.info(
                     f"**加工後の箱3辺合計:**\n\n"
-                    f"**{new_3sum:.1f} cm** *(元: {original_3sum:.1f} cm)*\n\n"
+                    f"**{new_3sum:.1f} cm** *(元: {box_3sum:.1f} cm)*\n\n"
                     f"削減容積: **{cut_amount * (box_vol/original_edge_val)/1000:.1f} L**"
                 )
         else:
@@ -375,8 +516,12 @@ if do_calc and selected_ids:
 
         # 履歴追加
         st.session_state.history.insert(0, {
+            "発送区分": f"{ship_mode} (÷{int(vol_factor)})" if is_intl_mode else ship_mode,
             "注文内容": order_str,
+            "配送会社": selected_carrier,
             "判定結果": best_box['name'],
+            "サイズ区分": size_category,
+            "想定送料": f"¥{shipping_cost:,}" if shipping_cost > 0 else "-",
             "必要寸法(+マージン込)": f"{best_box['actual_w']:.1f}x{best_box['actual_h']:.1f}x{best_box['actual_d']:.1f}",
             "加工提案": f"{max_margin_edge['name']}を{max_margin_edge['diff']:.1f}cmカット" if max_margin_edge['diff'] >= 1.0 else "不要",
             "梱包総重量": f"{total_pack_weight:.2f} kg"
@@ -384,8 +529,12 @@ if do_calc and selected_ids:
     else:
         st.error("⚠️ 選択した商品（+緩衝材マージン）が入る箱が「箱マスタ」にありません。より大きいサイズの箱を登録するか、マージン設定を調整してください。")
         st.session_state.history.insert(0, {
+            "発送区分": ship_mode,
             "注文内容": order_str,
+            "配送会社": selected_carrier,
             "判定結果": "適合なし (サイズオーバー)",
+            "サイズ区分": "-",
+            "想定送料": "-",
             "必要寸法(+マージン込)": "-",
             "加工提案": "-",
             "梱包総重量": "-"
