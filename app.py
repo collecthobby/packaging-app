@@ -47,8 +47,12 @@ def load_data():
     # 2. 箱マスタ
     url_boxes = get_sheet_url("箱マスタ")
     df_boxes = pd.read_csv(url_boxes).dropna(how="all")
-    df_boxes.columns = df_boxes.columns.str.strip()
     
+    # 1. 空白列の削除と空白文字のトリム
+    df_boxes = df_boxes.loc[:, df_boxes.columns.notna()]
+    df_boxes.columns = df_boxes.columns.astype(str).str.strip()
+
+    # 2. 判定キーワードによる標準列名への変換
     box_col_map = {}
     for col in df_boxes.columns:
         if "箱" in col and "名" in col:
@@ -61,7 +65,21 @@ def load_data():
             box_col_map[col] = "奥行(cm)"
         elif "重" in col:
             box_col_map[col] = "箱重量(kg)"
-    df_boxes = df_boxes.rename(columns=box_col_map).loc[:, ~df_boxes.columns.duplicated()]
+    
+    df_boxes = df_boxes.rename(columns=box_col_map)
+
+    # 3. リネーム後に重複した列名を一元化（最初の1列のみ残す）
+    df_boxes = df_boxes.loc[:, ~df_boxes.columns.duplicated(keep="first")]
+
+    # 4. それでも同名列が残る場合の安全策（末尾に _1, _2 等を付与してユニーク化）
+    cols = list(df_boxes.columns)
+    counts = {}
+    for i, col in enumerate(cols):
+        if cols.count(col) > 1:
+            counts[col] = counts.get(col, 0) + 1
+            if counts[col] > 1:
+                cols[i] = f"{col}_{counts[col]-1}"
+    df_boxes.columns = cols
 
     # 3. 各ルール別送料マスタの読み込み（複数シート対応）
     shipping_masters = {}
