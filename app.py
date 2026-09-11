@@ -86,7 +86,7 @@ def load_data():
     
     # 国内マスタ
     try:
-        df_dom = pd.read_csv(get_sheet_url("ヤフオク(ヤマト)")).dropna(how="all")
+        df_dom = pd.read_csv(get_sheet_url("ヤフオクおてがる配送(ヤマト運輸)")).dropna(how="all")
         df_dom.columns = df_dom.columns.str.strip()
         shipping_masters["🇯🇵 国内発送 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
     except:
