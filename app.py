@@ -108,8 +108,8 @@ def load_data():
     except:
         # フォールバック（旧シート名の場合）
         try:
-            df_dom = clean_shipping_df("送料マスタ")
-            shipping_masters["🇯🇵 国内発送 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
+            df_dom = clean_shipping_df("ヤフオクおてがる配送(ヤマト運輸)")
+            shipping_masters["🚚 ヤフオクヤマト"] = {"df": df_dom, "type": "dom"}
         except:
             pass
 
