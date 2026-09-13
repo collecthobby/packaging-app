@@ -81,74 +81,63 @@ def load_data():
                 cols[i] = f"{col}_{counts[col]-1}"
     df_boxes.columns = cols
 
-    # 3. 各ルール別送料マスタの読み込み（複数シート対応）
+# 3. 各ルール別送料マスタの読み込み（複数シート対応）
     shipping_masters = {}
     
+    # --- 送料シート共通のクリーンアップ関数（空白列・重複列を無視する） ---
+    def clean_shipping_df(sheet_name):
+        url = get_sheet_url(sheet_name)
+        df = pd.read_csv(url)
+        # 1. 全てNaN（空）の行・列を削除
+        df = df.dropna(how="all").dropna(how="all", axis=1)
+        # 2. 列名の空白除去＆文字列化
+        df.columns = df.columns.astype(str).str.strip()
+        # 3. 列名が Unnamed や 空白/NaN のものを削除
+        df = df.loc[:, ~df.columns.str.contains(r'^Unnamed', case=False, regex=True)]
+        df = df.loc[:, df.columns != ""]
+        # 4. 列名の重複を除去（最初の1つを残す）
+        df = df.loc[:, ~df.columns.duplicated(keep="first")]
+        return df
+
     # --------------------------------------------------
     # 1. ヤマト宅急便（旧：送料マスタ）
     # --------------------------------------------------
     try:
-        # 🔻 get_sheet_url("新しいシート名") に変更します
-        df_yamato = pd.read_csv(get_sheet_url("ヤフオクおてがる配送(日本郵便)")).dropna(how="all")
-        df_yamato.columns = df_yamato.columns.str.strip()
-        # 🔻 画面上の表示名を設定します
-        shipping_masters["🚚 ヤフオクおてがる配送(日本郵便)"] = {"df": df_yamato, "type": "dom"}
-    except Exception as e:
-        pass
-        
-    try:
-        # 🔻 get_sheet_url("新しいシート名") に変更します
-        df_yamato = pd.read_csv(get_sheet_url("ヤフオクおてがる配送(ヤマト運輸)")).dropna(how="all")
-        df_yamato.columns = df_yamato.columns.str.strip()
-        # 🔻 画面上の表示名を設定します
-        shipping_masters["🚚 ヤフオクおてがる配送(ヤマト運輸)"] = {"df": df_yamato, "type": "dom"}
-    except Exception as e:
-        pass
+        df_dom = clean_shipping_df("ヤマト宅急便") # シート名に合わせて変更してください
+        shipping_masters["🚚 ヤマト宅急便 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
+    except:
+        # フォールバック（旧シート名の場合）
+        try:
+            df_dom = clean_shipping_df("送料マスタ")
+            shipping_masters["🇯🇵 国内発送 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
+        except:
+            pass
 
     # --------------------------------------------------
     # 2. FedEx (旧：海外送料_5000)
     # --------------------------------------------------
     try:
-        df_fedex = pd.read_csv(get_sheet_url("FedEx_国内海外")).dropna(how="all")
-        df_fedex.columns = df_fedex.columns.str.strip()
-        shipping_masters["✈️ FedEx (容積重量 ÷5000)"] = {
-            "df": df_fedex, 
-            "type": "intl", 
-            "divisor": 5000.0  # ※容積重量の計算係数
-        }
-    except Exception as e:
-        pass
+        df_intl5000 = clean_shipping_df("FedEx_国内海外") # シート名に合わせて変更してください
+        shipping_masters["✈️ FedEx (容積重量 ÷5000)"] = {"df": df_intl5000, "type": "intl", "divisor": 5000.0}
+    except:
+        try:
+            df_intl5000 = clean_shipping_df("海外送料_5000")
+            shipping_masters["🌏 海外発送 (容積重量 ÷5000)"] = {"df": df_intl5000, "type": "intl", "divisor": 5000.0}
+        except:
+            pass
 
     # --------------------------------------------------
     # 3. 佐川急便 (旧：海外送料_8000)
     # --------------------------------------------------
     try:
-        df_sagawa = pd.read_csv(get_sheet_url("佐川急便_飛脚")).dropna(how="all")
-        df_sagawa.columns = df_sagawa.columns.str.strip()
-        shipping_masters["🚛 佐川急便 (サイズ基準)"] = {"df": df_sagawa, "type": "dom"}
-    except Exception as e:
-        pass
-    # 海外マスタ (÷5000)
-    try:
-        df_intl5000 = pd.read_csv(get_sheet_url("海外送料_5000")).dropna(how="all")
-        df_intl5000.columns = df_intl5000.columns.str.strip()
-        shipping_masters["🌏 海外発送 (容積重量 ÷5000)"] = {"df": df_intl5000, "type": "intl", "divisor": 5000.0}
+        df_intl8000 = clean_shipping_df("佐川急便_飛脚") # シート名に合わせて変更してください
+        shipping_masters["🚛 佐川急便 (サイズ基準)"] = {"df": df_intl8000, "type": "dom"}
     except:
-        # バックアップ用：旧「海外送料マスタ」名でも読み込み可能に
         try:
-            df_intl = pd.read_csv(get_sheet_url("海外送料マスタ")).dropna(how="all")
-            df_intl.columns = df_intl.columns.str.strip()
-            shipping_masters["🌏 海外発送 (容積重量 ÷5000)"] = {"df": df_intl, "type": "intl", "divisor": 5000.0}
+            df_intl8000 = clean_shipping_df("海外送料_8000")
+            shipping_masters["🌏 海外発送 (容積重量 ÷8000)"] = {"df": df_intl8000, "type": "intl", "divisor": 8000.0}
         except:
             pass
-
-    # 海外マスタ (÷8000)
-    try:
-        df_intl8000 = pd.read_csv(get_sheet_url("海外送料_8000")).dropna(how="all")
-        df_intl8000.columns = df_intl8000.columns.str.strip()
-        shipping_masters["🌏 海外発送 (容積重量 ÷8000)"] = {"df": df_intl8000, "type": "intl", "divisor": 8000.0}
-    except:
-        pass
 
     return df_items, df_boxes, shipping_masters
 
