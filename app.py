@@ -104,7 +104,7 @@ def load_data():
     # --------------------------------------------------
     try:
         df_dom = clean_shipping_df("ヤフオクおてがる配送(日本郵便)") # シート名に合わせて変更してください
-        shipping_masters["🚚 ゆうパック"] = {"df": df_dom, "type": "dom"}
+        shipping_masters["🚚 ヤフオクゆうパック"] = {"df": df_dom, "type": "dom"}
     except:
         # フォールバック（旧シート名の場合）
         try:
