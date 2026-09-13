@@ -106,11 +106,7 @@ def load_data():
         df_dom = clean_shipping_df("ヤフオクおてがる配送(日本郵便)") # シート名に合わせて変更してください
         shipping_masters["🚚 ヤフオクゆうパック"] = {"df": df_dom, "type": "dom"}
     except:
-    try:
-        df_dom = clean_shipping_df("ヤフオクおてがる配送(ヤマト運輸)") # シート名に合わせて変更してください
-        shipping_masters["🚚 ヤフオクヤマト"] = {"df": df_dom, "type": "dom"}
-    except:
-       # フォールバック（旧シート名の場合）
+           # フォールバック（旧シート名の場合）
         try:
             df_dom = clean_shipping_df("送料マスタ")
             shipping_masters["🇯🇵 国内発送 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
