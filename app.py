@@ -121,7 +121,7 @@ def load_data():
     # 1. 国際エアパケット(米国)
     # --------------------------------------------------
     try:
-        df_intl5000 = clean_shipping_df("国際エアパケット(米国)") # シート名に合わせて変更してください
+        df_Air packet = clean_shipping_df("国際エアパケット(米国)") # シート名に合わせて変更してください
         shipping_masters["✈️国際エアパケット(米国)"] = {"df": df_Air packet, "type": "dom"}
     except:
         pass
