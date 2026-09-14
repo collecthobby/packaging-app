@@ -106,29 +106,17 @@ def load_data():
         df_dom = clean_shipping_df("ヤフオクおてがる配送(日本郵便)")
         shipping_masters["🚚 ヤフオクゆうパック"] = {"df": df_dom, "type": "dom"}
     except:
-        try:
-            df_dom = clean_shipping_df("送料マスタ")
-            shipping_masters["🇯🇵 国内発送 (サイズ基準)"] = {"df": df_dom, "type": "dom"}
-        except:
-            pass
-
-    # --------------------------------------------------
-    # 2. 【ここに追加！】ヤフオクおてがる配送(ヤマト運輸)
-    # --------------------------------------------------
-    try:
-        df_yamato = clean_shipping_df("ヤフオクおてがる配送(ヤマト)")
-        shipping_masters["🐱 ヤフオク宅急便"] = {"df": df_yamato, "type": "dom"}
-    except:
         pass
 
     # --------------------------------------------------
-    # 3. 【さらに追加！】佐川急便
+    # 2. ヤフオクおてがる配送(ヤマト運輸)
     # --------------------------------------------------
     try:
-        df_sagawa = clean_shipping_df("佐川急便")
-        shipping_masters["🚛 佐川急便 飛脚宅配便"] = {"df": df_sagawa, "type": "dom"}
+        df_yamato = clean_shipping_df("ヤフオクおてがる配送(ヤマト運輸)")
+        shipping_masters["🐱 ヤフオクヤマト"] = {"df": df_yamato, "type": "dom"}
     except:
         pass
+
     # --------------------------------------------------
     # 2. FedEx (旧：海外送料_5000)
     # --------------------------------------------------
