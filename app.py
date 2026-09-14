@@ -122,8 +122,12 @@ def load_data():
     # --------------------------------------------------
     try:
         df_air_packet = clean_shipping_df("国際エアパケット(米国)")
-        shipping_masters["✈️ 国際エアパケット(米国)"] = {"df": df_air_packet, "type": "intl", "divisor": 99999999.0  # 実重量を強制的に採用させる設定}
-    except:
+        shipping_masters["✈️ 国際エアパケット(米国)"] = {
+            "df": df_air_packet,
+            "type": "intl",
+            "divisor": 99999999.0  # 実重量を優先させる
+        }
+    except Exception as e:
         pass
 
     # --------------------------------------------------
