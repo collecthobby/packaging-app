@@ -118,17 +118,13 @@ def load_data():
         pass
 
     # --------------------------------------------------
-    # 2. FedEx (旧：海外送料_5000)
+    # 1. 国際エアパケット(米国)
     # --------------------------------------------------
     try:
-        df_intl5000 = clean_shipping_df("FedEx_国内海外") # シート名に合わせて変更してください
-        shipping_masters["✈️ FedEx (容積重量 ÷5000)"] = {"df": df_intl5000, "type": "intl", "divisor": 5000.0}
+        df_intl5000 = clean_shipping_df("国際エアパケット(米国)") # シート名に合わせて変更してください
+        shipping_masters["✈️国際エアパケット(米国)"] = {"df": df_Air packet, "type": "dom"}
     except:
-        try:
-            df_intl5000 = clean_shipping_df("海外送料_5000")
-            shipping_masters["🌏 海外発送 (容積重量 ÷5000)"] = {"df": df_intl5000, "type": "intl", "divisor": 5000.0}
-        except:
-            pass
+        pass
 
     # --------------------------------------------------
     # 3. 佐川急便 (旧：海外送料_8000)
