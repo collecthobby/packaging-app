@@ -122,7 +122,7 @@ def load_data():
     # --------------------------------------------------
     try:
         df_Air_packet = clean_shipping_df("国際エアパケット(米国)") # シート名に合わせて変更してください
-        shipping_masters["✈️国際エアパケット(米国)"] = {"df": df_Air_packet, "type": "dom"}
+        shipping_masters["✈️国際エアパケット(米国)"] = {"df": df_Air_packet, "type": "intl", "divisor": 1.0}
     except:
         pass
 
