@@ -425,23 +425,31 @@ if do_calc and selected_ids:
         orig_vol = best_box['volume']
 
         # ------------------------------------------
-        # 🎉 1. 最適な箱基本情報（加工前・加工後 並列表示）
+        # 🎨 テキスト省略（…）を防ぐCSSスタイル調整
+        # ------------------------------------------
+        st.markdown(
+            "",
+            unsafe_allow_html=True
+        )
+
+        # ------------------------------------------
+        # 🎉 1. 最適な箱基本情報（加工前・加工後 表示）
         # ------------------------------------------
         st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
 
-        # 【加工前（元の箱）】
+        # 【加工前の箱（元のサイズ）】
         st.markdown("**📦 加工前の箱（元のサイズ）**")
         orig_col1, orig_col2, orig_col3 = st.columns(3)
-        orig_col1.metric("外寸 (幅x高x奥)", f"{best_box['box_w']:.1f} x {best_box['box_h']:.1f} x {best_box['box_d']:.1f} cm")
+        orig_col1.metric("外寸 (幅x高x奥)", f"{best_box['box_w']:.1f} × {best_box['box_h']:.1f} × {best_box['box_d']:.1f} cm")
         orig_col2.metric("3辺合計", f"{orig_3sum:.1f} cm")
         orig_col3.metric("容積", f"{orig_vol/1000:.1f} L")
 
-        # 【加工後（1辺カット後）】
+        # 【1辺カット加工後のサイズ】
         st.markdown("**✂️ 1辺カット加工後のサイズ**")
         res_col1, res_col2, res_col3, res_col4 = st.columns(4)
-        res_col1.metric("加工後寸法", f"{res_w:.1f} x {res_h:.1f} x {res_d:.1f} cm")
-        res_col2.metric("加工後3辺合計", f"{resized_3sum:.1f} cm", delta=f"-{orig_3sum - resized_3sum:.1f} cm", delta_color="normal")
-        res_col3.metric("加工後容積", f"{resized_vol/1000:.1f} L", delta=f"-{(orig_vol - resized_vol)/1000:.1f} L", delta_color="normal")
+        res_col1.metric("加工後寸法", f"{res_w:.1f} × {res_h:.1f} × {res_d:.1f} cm")
+        res_col2.metric("加工後3辺合計", f"{resized_3sum:.1f} cm", delta=f"-{orig_3sum - resized_3sum:.1f} cm")
+        res_col3.metric("加工後容積", f"{resized_vol/1000:.1f} L", delta=f"-{(orig_vol - resized_vol)/1000:.1f} L")
         res_col4.metric("梱包総重量", f"{total_pack_weight:.2f} kg", f"商品:{raw_items_weight:.2f}kg + 箱:{best_box['box_weight']:.2f}kg")
 
         st.write("---")
