@@ -377,36 +377,72 @@ if do_calc and selected_ids:
         total_pack_weight = raw_items_weight + best_box['box_weight']
 
         # ---------------------------------------------------------
-        # 📐 原寸箱サイズ と ✂️ リサイズ（加工後）サイズの算出
+        # 📐 1辺のみリサイズ（カット）の計算ロジック
         # ---------------------------------------------------------
-        # 原寸（元のダンボール寸法）
+        # 1. 元の箱の3辺寸法（降順で並べ替え）
+        box_dims_with_name = [
+            (best_box['box_w'], '幅'),
+            (best_box['box_h'], '高さ'),
+            (best_box['box_d'], '奥行')
+        ]
+        box_dims_sorted = sorted(box_dims_with_name, key=lambda x: x[0], reverse=True)
+
+        # 2. 商品＋マージンの必要寸法（降順）
+        item_dims_sorted = sorted([best_box['actual_w'], best_box['actual_h'], best_box['actual_d']], reverse=True)
+
+        # 3. 各辺の差分（余白・隙間）を計算
+        margins = []
+        for (b_val, b_name), i_val in zip(box_dims_sorted, item_dims_sorted):
+            margins.append({
+                'name': b_name,
+                'orig_val': b_val,
+                'target_val': i_val,
+                'diff': b_val - i_val
+            })
+
+        # 4. 「一番隙間が大きい1辺」を特定
+        margins.sort(key=lambda x: x['diff'], reverse=True)
+        target_edge = margins[0]  # カット対象の1辺
+
+        # 5. 「1辺のみカット」した後の新寸法を組み立てる
+        resized_dims = {}
+        for m in margins:
+            if m['name'] == target_edge['name'] and target_edge['diff'] >= 1.0:
+                # 最も隙間が大きい1辺のみを商品サイズまで切り詰め
+                resized_dims[m['name']] = m['target_val']
+            else:
+                # 残り2辺は元の箱サイズのまま維持！
+                resized_dims[m['name']] = m['orig_val']
+
+        res_w = resized_dims['幅']
+        res_h = resized_dims['高さ']
+        res_d = resized_dims['奥行']
+
+        # リサイズ後の3辺合計・容積・最長辺
+        resized_3sum = res_w + res_h + res_d
+        resized_vol = res_w * res_h * res_d
+        max_edge = max(res_w, res_h, res_d)
+
+        # 原寸（元の箱）情報
         orig_3sum = best_box['box_w'] + best_box['box_h'] + best_box['box_d']
         orig_vol = best_box['volume']
-
-        # リサイズ後（商品＋マージンにピッタリ切り詰めた寸法）
-        resized_w = best_box['actual_w']
-        resized_h = best_box['actual_h']
-        resized_d = best_box['actual_d']
-        resized_3sum = resized_w + resized_h + resized_d
-        resized_vol = resized_w * resized_h * resized_d
-        max_edge = max(resized_w, resized_h, resized_d) # 最長辺
 
         # ------------------------------------------
         # 🎉 1. 最適な箱基本情報
         # ------------------------------------------
-        st.success(f"### 🎉 最適な箱: 【{best_box['name']}】 (切り詰めリサイズ後)")
+        st.success(f"### 🎉 最適な箱: 【{best_box['name']}】 (1辺カット加工後)")
         b_col1, b_col2, b_col3, b_col4 = st.columns(4)
-        b_col1.metric("リサイズ後寸法", f"{resized_w:.1f} x {resized_h:.1f} x {resized_d:.1f} cm", f"元: {best_box['box_w']}x{best_box['box_h']}x{best_box['box_d']}")
-        b_col2.metric("リサイズ後3辺合計", f"{resized_3sum:.1f} cm", f"元: {orig_3sum:.1f} cm")
-        b_col3.metric("梱包総重量(実寸)", f"{total_pack_weight:.2f} kg", f"商品:{raw_items_weight:.2f}kg + 箱:{best_box['box_weight']:.2f}kg")
-        b_col4.metric("リサイズ後容積", f"{resized_vol/1000:.1f} L", f"元: {orig_vol/1000:.1f} L")
+        b_col1.metric("加工後寸法", f"{res_w:.1f} x {res_h:.1f} x {res_d:.1f} cm", f"元: {best_box['box_w']}x{best_box['box_h']}x{best_box['box_d']}")
+        b_col2.metric("加工後3辺合計", f"{resized_3sum:.1f} cm", f"元: {orig_3sum:.1f} cm")
+        b_col3.metric("梱包総重量", f"{total_pack_weight:.2f} kg", f"商品:{raw_items_weight:.2f}kg + 箱:{best_box['box_weight']:.2f}kg")
+        b_col4.metric("加工後容積", f"{resized_vol/1000:.1f} L", f"元: {orig_vol/1000:.1f} L")
 
         st.write("---")
 
         # ------------------------------------------
-        # 💰 2. 全ルール別・配送会社別 送料比較一覧表（リサイズ後サイズで計算）
+        # 💰 2. 全ルール別・配送会社別 送料比較一覧表（1辺リサイズサイズ適用）
         # ------------------------------------------
-        st.subheader("💰 全発送方法・会社別 送料一括比較結果 (リサイズサイズ適用)")
+        st.subheader("💰 全発送方法・会社別 送料一括比較結果 (1辺加工サイズ適用)")
 
         comparison_rows = []
         for rule_title, m_info in shipping_masters.items():
@@ -414,7 +450,7 @@ if do_calc and selected_ids:
             divisor = m_info.get("divisor", 5000.0)
             df_m = m_info["df"]
 
-            # 🔻 リサイズ後の 3辺合計(resized_3sum) と 容積(resized_vol) を渡して判定！
+            # 1辺カット後の3辺合計・容積で判定
             res = calc_carrier_cost(
                 df_shipping=df_m,
                 total_3sum=resized_3sum,
@@ -453,22 +489,14 @@ if do_calc and selected_ids:
                 st.error("⚠️ すべての配送サービスで規格外（サイズ・重量オーバー）となっています。")
 
         # ------------------------------------------
-        # ✂️ 3. 箱の加工提案
+        # ✂️ 3. 箱の現場加工指示
         # ------------------------------------------
         st.write("---")
-        st.write("**✂️ 箱の加工（リサイズ）詳細**")
-        box_dims = {'幅': best_box['box_w'], '高さ': best_box['box_h'], '奥行': best_box['box_d']}
-        item_dims = sorted([best_box['actual_w'], best_box['actual_h'], best_box['actual_d']], reverse=True)
-        box_dims_sorted = sorted([(v, k) for k, v in box_dims.items()], reverse=True)
+        st.write("**✂️ 現場への箱加工（リサイズ）指示**")
 
-        margins = [{'name': k, 'box_val': b_val, 'item_val': i_val, 'diff': b_val - i_val}
-                   for (b_val, k), i_val in zip(box_dims_sorted, item_dims)]
-        margins.sort(key=lambda x: x['diff'], reverse=True)
-        max_margin_edge = margins[0]
-
-        if max_margin_edge['diff'] >= 1.0:
+        if target_edge['diff'] >= 1.0:
             st.warning(
-                f"✂️ **【切り詰め加工】** 箱の **「{max_margin_edge['name']}」** を **{max_margin_edge['box_val']:.1f} cm ➔ {max_margin_edge['item_val']:.1f} cm** へ **{max_margin_edge['diff']:.1f} cm** 切り詰めることで、上記の最安送料が適用されます。"
+                f"✂️ **【1辺カット加工指示】** 箱の **「{target_edge['name']}」** のみを **{target_edge['orig_val']:.1f} cm ➔ {target_edge['target_val']:.1f} cm** へ **{target_edge['diff']:.1f} cm** 切り詰めて梱包してください。（残り2辺はそのまま使用）"
             )
         else:
             st.success("✅ **加工不要**: 元の箱サイズでジャストフィットしています。")
@@ -476,13 +504,12 @@ if do_calc and selected_ids:
         # 履歴追加
         st.session_state.history.insert(0, {
             "注文内容": order_str,
-            "判定箱": f"{best_box['name']} (加工後)",
+            "判定箱": f"{best_box['name']} ({target_edge['name']}カット)",
             "最安発送手段": f"{cheapest['配送会社/サービス']} (¥{cheapest['想定送料']:,})" if cheapest['想定送料'] < 9999999 else "なし",
             "梱包総重量": f"{total_pack_weight:.2f} kg"
         })
     else:
         st.error("⚠️ 選択した商品が入る箱が「箱マスタ」にありません。")
-
 # ==========================================
 # 下部: 📜 判定履歴
 # ==========================================
