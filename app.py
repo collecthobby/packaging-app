@@ -370,7 +370,7 @@ if do_calc and selected_ids:
     st.markdown("---")
     order_str = ", ".join(order_summary_list)
 
-     if fitted_boxes:
+    if fitted_boxes:
         fitted_boxes.sort(key=lambda x: x['volume'])
         best_box = fitted_boxes[0]
 
