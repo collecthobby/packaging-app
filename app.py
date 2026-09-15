@@ -424,33 +424,98 @@ if do_calc and selected_ids:
         orig_3sum = best_box['box_w'] + best_box['box_h'] + best_box['box_d']
         orig_vol = best_box['volume']
 
-        # ------------------------------------------
-        # 🎨 テキスト省略（…）を防ぐCSSスタイル調整
+             # ------------------------------------------
+        # 🎨 テキスト省略（…）を絶対に行わないフォント・カード調整
         # ------------------------------------------
         st.markdown(
-            "",
+            """
+            <style>
+            .size-box {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 10px;
+                text-align: left;
+                margin-bottom: 5px;
+            }
+            .size-title {
+                font-size: 0.8rem;
+                color: #6c757d;
+                font-weight: 600;
+                margin-bottom: 2px;
+            }
+            .size-num {
+                font-size: 1.05rem;
+                font-weight: bold;
+                color: #1f2937;
+                word-break: break-all;
+                line-height: 1.2;
+            }
+            .size-delta {
+                font-size: 0.75rem;
+                color: #dc2626;
+                margin-top: 2px;
+            }
+            .size-sub {
+                font-size: 0.75rem;
+                color: #16a34a;
+                margin-top: 2px;
+            }
+            </style>
+            """,
             unsafe_allow_html=True
         )
 
         # ------------------------------------------
-        # 🎉 1. 最適な箱基本情報（加工前・加工後 表示）
+        # 🎉 1. 最適な箱基本情報（カード風デザイン）
         # ------------------------------------------
         st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
 
         # 【加工前の箱（元のサイズ）】
         st.markdown("**📦 加工前の箱（元のサイズ）**")
         orig_col1, orig_col2, orig_col3 = st.columns(3)
-        orig_col1.metric("外寸 (幅x高x奥)", f"{best_box['box_w']:.1f} × {best_box['box_h']:.1f} × {best_box['box_d']:.1f} cm")
-        orig_col2.metric("3辺合計", f"{orig_3sum:.1f} cm")
-        orig_col3.metric("容積", f"{orig_vol/1000:.1f} L")
+        with orig_col1:
+            st.markdown(f"""<div class="size-box">
+                <div class="size-title">外寸 (幅x高x奥)</div>
+                <div class="size-num">{best_box['box_w']:.1f} × {best_box['box_h']:.1f} × {best_box['box_d']:.1f} cm</div>
+            </div>""", unsafe_allow_html=True)
+        with orig_col2:
+            st.markdown(f"""<div class="size-box">
+                <div class="size-title">3辺合計</div>
+                <div class="size-num">{orig_3sum:.1f} cm</div>
+            </div>""", unsafe_allow_html=True)
+        with orig_col3:
+            st.markdown(f"""<div class="size-box">
+                <div class="size-title">容積</div>
+                <div class="size-num">{orig_vol/1000:.1f} L</div>
+            </div>""", unsafe_allow_html=True)
 
         # 【1辺カット加工後のサイズ】
         st.markdown("**✂️ 1辺カット加工後のサイズ**")
         res_col1, res_col2, res_col3, res_col4 = st.columns(4)
-        res_col1.metric("加工後寸法", f"{res_w:.1f} × {res_h:.1f} × {res_d:.1f} cm")
-        res_col2.metric("加工後3辺合計", f"{resized_3sum:.1f} cm", delta=f"-{orig_3sum - resized_3sum:.1f} cm")
-        res_col3.metric("加工後容積", f"{resized_vol/1000:.1f} L", delta=f"-{(orig_vol - resized_vol)/1000:.1f} L")
-        res_col4.metric("梱包総重量", f"{total_pack_weight:.2f} kg", f"商品:{raw_items_weight:.2f}kg + 箱:{best_box['box_weight']:.2f}kg")
+        with res_col1:
+            st.markdown(f"""<div class="size-box">
+                <div class="size-title">加工後寸法</div>
+                <div class="size-num">{res_w:.1f} × {res_h:.1f} × {res_d:.1f} cm</div>
+            </div>""", unsafe_allow_html=True)
+        with res_col2:
+            st.markdown(f"""<div class="size-box">
+                <div class="size-title">加工後3辺合計</div>
+                <div class="size-num">{resized_3sum:.1f} cm</div>
+                <div class="size-delta">↓ -{orig_3sum - resized_3sum:.1f} cm</div>
+            </div>""", unsafe_allow_html=True)
+        with res_col3:
+            st.markdown(f"""<div class="size-box">
+                <div class="size-title">加工後容積</div>
+                <div class="size-num">{resized_vol/1000:.1f} L</div>
+                <div class="size-delta">↓ -{(orig_vol - resized_vol)/1000:.1f} L</div>
+            </div>""", unsafe_allow_html=True)
+        with res_col4:
+            st.markdown(f"""<div class="size-box">
+                <div class="size-title">梱包総重量</div>
+                <div class="size-num">{total_pack_weight:.2f} kg</div>
+                <div class="size-sub">商品:{raw_items_weight:.2f}kg + 箱:{best_box['box_weight']:.2f}kg</div>
+            </div>""", unsafe_allow_html=True)
 
         st.write("---")
 
