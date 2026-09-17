@@ -134,7 +134,7 @@ def load_data():
     # 3. 佐川急便 (旧：海外送料_8000)
     # --------------------------------------------------
     try:
-        df_intl8000 = clean_shipping_df("佐川急便_飛脚") # シート名に合わせて変更してください
+        df_intl8000 = clean_shipping_df("佐川急便_飛脚")
         shipping_masters["🚛 佐川急便 (サイズ基準)"] = {"df": df_intl8000, "type": "dom"}
     except:
         try:
@@ -143,7 +143,37 @@ def load_data():
         except:
             pass
 
+    # --------------------------------------------------
+    # 📦 4. eBay SpeedPAK Economy (寸法・胴回り制限付き)
+    # --------------------------------------------------
+    try:
+        df_speedpak = clean_shipping_df("eBay SpeedPAK Economy")
+
+        def check_speedpak_limits(dims, total_3sum):
+            length = dims[0]  # 最長辺
+            width = dims[1]   # 中間辺
+            height = dims[2]  # 最短辺
+
+            if length > 66.0:
+                return False, "規格外(長さ66cm超)"
+
+            girth = length + 2 * (width + height)
+            if girth > 274.0:
+                return False, "規格外(胴回り274cm超)"
+
+            return True, ""
+
+        shipping_masters["📦 eBay SpeedPAK Economy"] = {
+            "df": df_speedpak,
+            "type": "intl",
+            "divisor": 8000.0,  # 必要に応じて調整（一般的には5000）
+            "custom_check": check_speedpak_limits
+        }
+    except Exception as e:
+        pass  # シートが存在しない場合はスキップ
+
     return df_items, df_boxes, shipping_masters
+
 
 try:
     df_master, df_boxes, shipping_masters = load_data()
@@ -260,12 +290,21 @@ with col_right:
         return best_bounding_boxes
 
    # --- 送料計算汎用関数 ---
-    def calc_carrier_cost(df_shipping, total_3sum, total_weight_kg, box_volume_cm3, rule_type, divisor=5000.0, max_single_edge=0.0):
+    def calc_carrier_cost(df_shipping, total_3sum, total_weight_kg, box_volume_cm3, rule_type, divisor=5000.0, max_single_edge=0.0, box_dims=None, custom_check=None):
         results = {}
         ignore_cols = ["サイズ区分", "サイズ", "重量上限(kg)", "重量上限", "3辺合計上限(cm)", "3辺合計上限"]
         carriers = [c for c in df_shipping.columns if c not in ignore_cols]
 
         df_sorted = df_shipping.copy()
+
+        # 【追加】シートごとのカスタム寸法チェック (eBay SpeedPAK Economyの「長さ66cm」「胴回り274cm」など)
+        if box_dims and custom_check:
+            sorted_dims = sorted(box_dims, reverse=True)  # [最長辺(長さ), 中間辺(幅), 最短辺(高さ)]
+            is_valid, reason = custom_check(sorted_dims, total_3sum)
+            if not is_valid:
+                for c in carriers:
+                    results[c] = {"cost": 0, "cat": reason, "weight_used": float(total_weight_kg)}
+                return results
 
         # 【追加チェック】最大1辺が制限を超えている場合は全キャリア「規格外」
         if max_single_edge > 0 and max_single_edge > 60.0:  # 例：国際エアパケットは最大1辺60cm以内
@@ -324,9 +363,6 @@ with col_right:
                     results[c] = {"cost": 0, "cat": "規格外", "weight_used": effective_weight, "vol_weight": volumetric_weight}
 
         return results
-
-    do_calc = st.button("🚀 推奨箱＆全ルール別送料を一括判定する", type="primary", use_container_width=True, disabled=not selected_ids)
-
 # ==========================================
 # 中部: 全計算結果を一発全表示
 # ==========================================
@@ -525,6 +561,7 @@ if do_calc and selected_ids:
             rule_type = m_info["type"]
             divisor = m_info.get("divisor", 5000.0)
             df_m = m_info["df"]
+            custom_check_func = m_info.get("custom_check", None)
 
             # 1. 加工前（元のサイズ）での送料計算
             res_orig = calc_carrier_cost(
@@ -534,7 +571,8 @@ if do_calc and selected_ids:
                 box_volume_cm3=orig_vol,
                 rule_type=rule_type,
                 divisor=divisor,
-                max_single_edge=max_edge_orig
+                box_dims=[best_box['box_w'], best_box['box_h'], best_box['box_d']],
+                custom_check=custom_check_func
             )
 
             # 2. 加工後（リサイズサイズ）での送料計算
@@ -545,7 +583,8 @@ if do_calc and selected_ids:
                 box_volume_cm3=resized_vol,
                 rule_type=rule_type,
                 divisor=divisor,
-                max_single_edge=max_edge_res
+                box_dims=[res_w, res_h, res_d],
+                custom_check=custom_check_func
             )
 
             for carrier_name in res_res.keys():
