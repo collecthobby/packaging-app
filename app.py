@@ -361,8 +361,10 @@ with col_right:
                         break
                 if not matched:
                     results[c] = {"cost": 0, "cat": "規格外", "weight_used": effective_weight, "vol_weight": volumetric_weight}
-
+               
         return results
+
+        do_calc = st.button("🚀 発送方法を一括計算", type="primary", use_container_width=True)
 # ==========================================
 # 中部: 全計算結果を一発全表示
 # ==========================================
