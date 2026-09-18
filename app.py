@@ -36,6 +36,45 @@ def get_sheet_url(sheet_name: str) -> str:
     encoded_name = quote(sheet_name)
     return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={encoded_name}"
 
+# ==========================================
+# 共通制限チェック関数（小形包装物・特定サービス用）
+# ==========================================
+def check_small_packet_limits(dims, total_3sum, total_weight_kg):
+    """
+    国際エアパケットなどの小形包装物共通規格チェック
+    - 最長辺 <= 60cm
+    - 3辺合計 <= 90cm
+    - 重量 <= 2.0kg
+    """
+    length = dims[0]  # 最長辺
+    if length > 60.0:
+        return False, "規格外(最長辺60cm超)"
+    if total_3sum > 90.0:
+        return False, "規格外(3辺合計90cm超)"
+    if total_weight_kg > 2.0:
+        return False, "規格外(重量2kg超)"
+    return True, ""
+
+def check_speedpak_limits(dims, total_3sum, total_weight_kg):
+    """
+    eBay SpeedPAK Economy 規格チェック
+    - 最長辺 <= 66cm
+    - 胴回り（最長辺 + 2*(幅+高さ)） <= 274cm
+    """
+    length = dims[0]
+    width = dims[1]
+    height = dims[2]
+
+    if length > 66.0:
+        return False, "規格外(長さ66cm超)"
+
+    girth = length + 2 * (width + height)
+    if girth > 274.0:
+        return False, "規格外(胴回り274cm超)"
+
+    return True, ""
+
+
 def load_data():
     # 1. 商品マスタ
     url_items = get_sheet_url("商品マスタ")
@@ -48,11 +87,9 @@ def load_data():
     url_boxes = get_sheet_url("箱マスタ")
     df_boxes = pd.read_csv(url_boxes).dropna(how="all")
     
-    # 1. 空白列の削除と空白文字のトリム
     df_boxes = df_boxes.loc[:, df_boxes.columns.notna()]
     df_boxes.columns = df_boxes.columns.astype(str).str.strip()
 
-    # 2. 判定キーワードによる標準列名への変換
     box_col_map = {}
     for col in df_boxes.columns:
         if "箱" in col and "名" in col:
@@ -67,11 +104,8 @@ def load_data():
             box_col_map[col] = "箱重量(kg)"
     
     df_boxes = df_boxes.rename(columns=box_col_map)
-
-    # 3. リネーム後に重複した列名を一元化（最初の1列のみ残す）
     df_boxes = df_boxes.loc[:, ~df_boxes.columns.duplicated(keep="first")]
 
-    # 4. それでも同名列が残る場合の安全策（末尾に _1, _2 等を付与してユニーク化）
     cols = list(df_boxes.columns)
     counts = {}
     for i, col in enumerate(cols):
@@ -81,96 +115,70 @@ def load_data():
                 cols[i] = f"{col}_{counts[col]-1}"
     df_boxes.columns = cols
 
-# 3. 各ルール別送料マスタの読み込み（複数シート対応）
-    shipping_masters = {}
-    
-    # --- 送料シート共通のクリーンアップ関数（空白列・重複列を無視する） ---
+    # --- 送料シート共通のクリーンアップ関数 ---
     def clean_shipping_df(sheet_name):
         url = get_sheet_url(sheet_name)
         df = pd.read_csv(url)
-        # 1. 全てNaN（空）の行・列を削除
         df = df.dropna(how="all").dropna(how="all", axis=1)
-        # 2. 列名の空白除去＆文字列化
         df.columns = df.columns.astype(str).str.strip()
-        # 3. 列名が Unnamed や 空白/NaN のものを削除
         df = df.loc[:, ~df.columns.str.contains(r'^Unnamed', case=False, regex=True)]
         df = df.loc[:, df.columns != ""]
-        # 4. 列名の重複を除去（最初の1つを残す）
         df = df.loc[:, ~df.columns.duplicated(keep="first")]
         return df
 
-   # --------------------------------------------------
-    # 1. ヤフオクおてがる配送(日本郵便)
-    # --------------------------------------------------
-    try:
-        df_dom = clean_shipping_df("ヤフオクおてがる配送(日本郵便)")
-        shipping_masters["🚚 ヤフオクゆうパック"] = {"df": df_dom, "type": "dom"}
-    except:
-        pass
+    # 3. 発送マスター辞書（ここを一元管理）
+    shipping_masters = {}
 
-    # --------------------------------------------------
-    # 2. ヤフオクおてがる配送(ヤマト運輸)
-    # --------------------------------------------------
+    # 日本郵便（おてがる配送）
     try:
-        df_yamato = clean_shipping_df("ヤフオクおてがる配送(ヤマト運輸)")
-        shipping_masters["🐱 ヤフオクヤマト"] = {"df": df_yamato, "type": "dom"}
-    except:
-        pass
-
-    # --------------------------------------------------
-    # 3. 国際エアパケット(米国)
-    # --------------------------------------------------
-    try:
-        df_air_packet = clean_shipping_df("国際エアパケット(米国)")
-        shipping_masters["✈️ 国際エアパケット(米国)"] = {
-            "df": df_air_packet,
-            "type": "intl",
-            "divisor": 99999999.0  # 実重量を優先させる
+        shipping_masters["🚚 ヤフオクゆうパック"] = {
+            "df": clean_shipping_df("ヤフオクおてがる配送(日本郵便)"),
+            "type": "dom"
         }
-    except Exception as e:
-        pass
+    except: pass
 
-    # --------------------------------------------------
-    # 3. 佐川急便 (旧：海外送料_8000)
-    # --------------------------------------------------
+    # ヤマト運輸（おてがる配送）
     try:
-        df_intl8000 = clean_shipping_df("佐川急便_飛脚")
-        shipping_masters["🚛 佐川急便 (サイズ基準)"] = {"df": df_intl8000, "type": "dom"}
+        shipping_masters["🐱 ヤフオクヤマト"] = {
+            "df": clean_shipping_df("ヤフオクおてがる配送(ヤマト運輸)"),
+            "type": "dom"
+        }
+    except: pass
+
+    # 国際エアパケット（小形包装物チェックを適用）
+    try:
+        shipping_masters["✈️ 国際エアパケット(米国)"] = {
+            "df": clean_shipping_df("国際エアパケット(米国)"),
+            "type": "intl",
+            "divisor": 99999999.0,
+            "custom_check": check_small_packet_limits  # ★共通ルールを適用
+        }
+    except: pass
+
+    # 佐川急便
+    try:
+        shipping_masters["🚛 佐川急便 (サイズ基準)"] = {
+            "df": clean_shipping_df("佐川急便_飛脚"),
+            "type": "dom"
+        }
     except:
         try:
-            df_intl8000 = clean_shipping_df("海外送料_8000")
-            shipping_masters["🌏 海外発送 (容積重量 ÷8000)"] = {"df": df_intl8000, "type": "intl", "divisor": 8000.0}
-        except:
-            pass
+            shipping_masters["🌏 海外発送 (容積重量 ÷8000)"] = {
+                "df": clean_shipping_df("海外送料_8000"),
+                "type": "intl",
+                "divisor": 8000.0
+            }
+        except: pass
 
-    # --------------------------------------------------
-    # 📦 4. eBay SpeedPAK Economy (寸法・胴回り制限付き)
-    # --------------------------------------------------
+    # eBay SpeedPAK Economy
     try:
-        df_speedpak = clean_shipping_df("eBay SpeedPAK Economy")
-
-        def check_speedpak_limits(dims, total_3sum):
-            length = dims[0]  # 最長辺
-            width = dims[1]   # 中間辺
-            height = dims[2]  # 最短辺
-
-            if length > 66.0:
-                return False, "規格外(長さ66cm超)"
-
-            girth = length + 2 * (width + height)
-            if girth > 274.0:
-                return False, "規格外(胴回り274cm超)"
-
-            return True, ""
-
         shipping_masters["📦 eBay SpeedPAK Economy"] = {
-            "df": df_speedpak,
+            "df": clean_shipping_df("eBay SpeedPAK Economy"),
             "type": "intl",
-            "divisor": 8000.0,  # 必要に応じて調整（一般的には5000）
-            "custom_check": check_speedpak_limits
+            "divisor": 8000.0,
+            "custom_check": check_speedpak_limits  # ★SpeedPAKルールを適用
         }
-    except Exception as e:
-        pass  # シートが存在しない場合はスキップ
+    except: pass
 
     return df_items, df_boxes, shipping_masters
 
@@ -289,28 +297,22 @@ with col_right:
 
         return best_bounding_boxes
 
-   # --- 送料計算汎用関数 ---
-    def calc_carrier_cost(df_shipping, total_3sum, total_weight_kg, box_volume_cm3, rule_type, divisor=5000.0, max_single_edge=0.0, box_dims=None, custom_check=None):
+    # --- 汎用送料計算ロジック ---
+    def calc_carrier_cost(df_shipping, total_3sum, total_weight_kg, box_volume_cm3, rule_type, divisor=5000.0, box_dims=None, custom_check=None):
         results = {}
         ignore_cols = ["サイズ区分", "サイズ", "重量上限(kg)", "重量上限", "3辺合計上限(cm)", "3辺合計上限"]
         carriers = [c for c in df_shipping.columns if c not in ignore_cols]
 
         df_sorted = df_shipping.copy()
 
-        # 【追加】シートごとのカスタム寸法チェック (eBay SpeedPAK Economyの「長さ66cm」「胴回り274cm」など)
+        # カスタムチェック判定（関数が設定されている場合のみ呼び出し）
         if box_dims and custom_check:
-            sorted_dims = sorted(box_dims, reverse=True)  # [最長辺(長さ), 中間辺(幅), 最短辺(高さ)]
-            is_valid, reason = custom_check(sorted_dims, total_3sum)
+            sorted_dims = sorted(box_dims, reverse=True)  # [最長辺, 中間辺, 最短辺]
+            is_valid, reason = custom_check(sorted_dims, total_3sum, float(total_weight_kg))
             if not is_valid:
                 for c in carriers:
                     results[c] = {"cost": 0, "cat": reason, "weight_used": float(total_weight_kg)}
                 return results
-
-        # 【追加チェック】最大1辺が制限を超えている場合は全キャリア「規格外」
-        if max_single_edge > 0 and max_single_edge > 60.0:  # 例：国際エアパケットは最大1辺60cm以内
-            for c in carriers:
-                results[c] = {"cost": 0, "cat": "規格外(1辺60cm超)", "weight_used": float(total_weight_kg)}
-            return results
 
         if rule_type == "dom":
             size_col = next((c for c in df_sorted.columns if "サイズ" in c), None)
@@ -353,7 +355,6 @@ with col_right:
                     wt_limit = row[weight_col]
                     sz_limit = float(row[size_col]) if size_col else 999.0
                     
-                    # 重量判定 ＆ 3辺合計上限(90cmなど)の比較チェック
                     if effective_weight <= wt_limit and total_3sum <= sz_limit:
                         cost = int(clean_decimal(row[c]))
                         results[c] = {"cost": cost, "cat": f"~{wt_limit:.1f}kg区分", "weight_used": effective_weight, "vol_weight": volumetric_weight}
@@ -361,9 +362,11 @@ with col_right:
                         break
                 if not matched:
                     results[c] = {"cost": 0, "cat": "規格外", "weight_used": effective_weight, "vol_weight": volumetric_weight}
-               
+                
         return results
+
 do_calc = st.button("🚀 発送方法を一括計算", type="primary", use_container_width=True)
+
 # ==========================================
 # 中部: 全計算結果を一発全表示
 # ==========================================
@@ -451,14 +454,12 @@ if do_calc and selected_ids:
         # 加工前・加工後のサイズ計算
         resized_3sum = res_w + res_h + res_d
         resized_vol = res_w * res_h * res_d
-        max_edge_res = max(res_w, res_h, res_d)
 
         orig_3sum = best_box['box_w'] + best_box['box_h'] + best_box['box_d']
         orig_vol = best_box['volume']
-        max_edge_orig = max(best_box['box_w'], best_box['box_h'], best_box['box_d'])
 
         # ------------------------------------------
-        # 🎨 テキスト省略（…）を絶対に行わないスタイル調整
+        # 🎨 スタイル調整
         # ------------------------------------------
         st.markdown(
             """
@@ -504,7 +505,6 @@ if do_calc and selected_ids:
         # ------------------------------------------
         st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
 
-        # 【加工前の箱（元のサイズ）】
         st.markdown("**📦 加工前の箱（元のサイズ）**")
         orig_col1, orig_col2, orig_col3 = st.columns(3)
         with orig_col1:
@@ -523,7 +523,6 @@ if do_calc and selected_ids:
                 <div class="size-num">{orig_vol/1000:.1f} L</div>
             </div>""", unsafe_allow_html=True)
 
-        # 【1辺カット加工後のサイズ】
         st.markdown("**✂️ 1辺カット加工後のサイズ**")
         res_col1, res_col2, res_col3, res_col4 = st.columns(4)
         with res_col1:
@@ -552,7 +551,7 @@ if do_calc and selected_ids:
 
         st.write("---")
 
-       # ------------------------------------------
+        # ------------------------------------------
         # 💰 2. リサイズ前後 送料一括比較一覧表
         # ------------------------------------------
         st.subheader("💰 リサイズ前後の送料比較一覧")
@@ -590,16 +589,14 @@ if do_calc and selected_ids:
 
             for carrier_name in res_res.keys():
                 cost_orig = res_orig[carrier_name]["cost"]
-                cat_orig = res_orig[carrier_name]["cat"]  # ★追加：加工前の区分を取得
+                cat_orig = res_orig[carrier_name]["cat"]
                 
                 cost_res = res_res[carrier_name]["cost"]
                 cat_res = res_res[carrier_name]["cat"]
 
-                # 有効な金額（規格外以外）の処理
                 val_orig = cost_orig if cost_orig > 0 else 9999999
                 val_res = cost_res if cost_res > 0 else 9999999
 
-                # 差額（お得額）の算出
                 if val_orig < 9999999 and val_res < 9999999:
                     saving = val_orig - val_res
                 else:
@@ -608,7 +605,7 @@ if do_calc and selected_ids:
                 comparison_rows.append({
                     "発送区分/ルール": rule_title,
                     "配送会社/サービス": carrier_name,
-                    "加工前 区分": cat_orig,  # ★追加
+                    "加工前 区分": cat_orig,
                     "加工後 区分": cat_res,
                     "リサイズ前 送料": val_orig,
                     "リサイズ後 送料": val_res,
@@ -619,11 +616,10 @@ if do_calc and selected_ids:
             df_comp = pd.DataFrame(comparison_rows)
             df_comp_sorted = df_comp.sort_values(by="リサイズ後 送料")
 
-            # 表示用に金額フォーマットを調整
             df_comp_display = pd.DataFrame()
             df_comp_display["発送区分/ルール"] = df_comp_sorted["発送区分/ルール"]
             df_comp_display["配送会社/サービス"] = df_comp_sorted["配送会社/サービス"]
-            df_comp_display["加工前 区分"] = df_comp_sorted["加工前 区分"]  # ★追加
+            df_comp_display["加工前 区分"] = df_comp_sorted["加工前 区分"]
             df_comp_display["加工後 区分"] = df_comp_sorted["加工後 区分"]
             df_comp_display["リサイズ前 送料"] = df_comp_sorted["リサイズ前 送料"].apply(lambda x: f"¥{x:,}" if x < 9999999 else "規格外")
             df_comp_display["リサイズ後 送料"] = df_comp_sorted["リサイズ後 送料"].apply(lambda x: f"¥{x:,}" if x < 9999999 else "規格外")
