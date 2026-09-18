@@ -552,7 +552,7 @@ if do_calc and selected_ids:
 
         st.write("---")
 
-        # ------------------------------------------
+       # ------------------------------------------
         # 💰 2. リサイズ前後 送料一括比較一覧表
         # ------------------------------------------
         st.subheader("💰 リサイズ前後の送料比較一覧")
@@ -590,6 +590,8 @@ if do_calc and selected_ids:
 
             for carrier_name in res_res.keys():
                 cost_orig = res_orig[carrier_name]["cost"]
+                cat_orig = res_orig[carrier_name]["cat"]  # ★追加：加工前の区分を取得
+                
                 cost_res = res_res[carrier_name]["cost"]
                 cat_res = res_res[carrier_name]["cat"]
 
@@ -606,6 +608,7 @@ if do_calc and selected_ids:
                 comparison_rows.append({
                     "発送区分/ルール": rule_title,
                     "配送会社/サービス": carrier_name,
+                    "加工前 区分": cat_orig,  # ★追加
                     "加工後 区分": cat_res,
                     "リサイズ前 送料": val_orig,
                     "リサイズ後 送料": val_res,
@@ -620,6 +623,7 @@ if do_calc and selected_ids:
             df_comp_display = pd.DataFrame()
             df_comp_display["発送区分/ルール"] = df_comp_sorted["発送区分/ルール"]
             df_comp_display["配送会社/サービス"] = df_comp_sorted["配送会社/サービス"]
+            df_comp_display["加工前 区分"] = df_comp_sorted["加工前 区分"]  # ★追加
             df_comp_display["加工後 区分"] = df_comp_sorted["加工後 区分"]
             df_comp_display["リサイズ前 送料"] = df_comp_sorted["リサイズ前 送料"].apply(lambda x: f"¥{x:,}" if x < 9999999 else "規格外")
             df_comp_display["リサイズ後 送料"] = df_comp_sorted["リサイズ後 送料"].apply(lambda x: f"¥{x:,}" if x < 9999999 else "規格外")
