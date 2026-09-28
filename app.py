@@ -155,22 +155,7 @@ def load_data():
         }
     except: pass
 
-    # 佐川急便
-    try:
-        shipping_masters["🚛 佐川急便 (サイズ基準)"] = {
-            "df": clean_shipping_df("佐川急便_飛脚"),
-            "type": "dom"
-        }
-    except:
-        try:
-            shipping_masters["🌏 海外発送 (容積重量 ÷8000)"] = {
-                "df": clean_shipping_df("海外送料_8000"),
-                "type": "intl",
-                "divisor": 8000.0
-            }
-        except: pass
-
-    # eBay SpeedPAK Economy
+        # eBay SpeedPAK Economy
     try:
         shipping_masters["📦 eBay SpeedPAK Economy"] = {
             "df": clean_shipping_df("eBay SpeedPAK Economy"),
