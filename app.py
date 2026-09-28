@@ -459,16 +459,6 @@ if do_calc and selected_ids:
         orig_vol = best_box['volume']
 
         # ------------------------------------------
-        # 🎨 スタイル調整
-        # ------------------------------------------
-        st.markdown(
-            """
-            
-            """,
-            unsafe_allow_html=True
-        )
-
-        # ------------------------------------------
         # 🎉 1. 最適な箱基本情報
         # ------------------------------------------
         st.success(f"### 🎉 最適な箱: 【{best_box['name']}】")
@@ -476,175 +466,129 @@ if do_calc and selected_ids:
         st.markdown("**📦 加工前の箱（元のサイズ）**")
         orig_col1, orig_col2, orig_col3 = st.columns(3)
         with orig_col1:
-            st.markdown(f"""
-外寸 (幅x高x奥)
+            st.markdown(f"外寸 (幅x高x奥)\n\n{best_box['box_w']:.1f} × {best_box['box_h']:.1f} × {best_box['box_d']:.1f} cm")
+        with orig_col2:
+            st.markdown(f"3辺合計\n\n{orig_3sum:.1f} cm")
+        with orig_col3:
+            st.markdown(f"容積\n\n{orig_vol/1000:.1f} L")
 
-{best_box['box_w']:.1f} × {best_box['box_h']:.1f} × {best_box['box_d']:.1f} cm
+        st.markdown("**✂️ 1辺カット加工後のサイズ**")
+        res_col1, res_col2, res_col3, res_col4 = st.columns(4)
+        with res_col1:
+            st.markdown(f"加工後寸法\n\n{res_w:.1f} × {res_h:.1f} × {res_d:.1f} cm")
+        with res_col2:
+            st.markdown(f"加工後3辺合計\n\n{resized_3sum:.1f} cm\n\n↓ -{orig_3sum - resized_3sum:.1f} cm")
+        with res_col3:
+            st.markdown(f"加工後容積\n\n{resized_vol/1000:.1f} L\n\n↓ -{(orig_vol - resized_vol)/1000:.1f} L")
+        with res_col4:
+            st.markdown(f"梱包総重量\n\n{total_pack_weight:.2f} kg\n\n商品:{raw_items_weight:.2f}kg + 箱:{best_box['box_weight']:.2f}kg")
 
-""", unsafe_allow_html=True)
-with orig_col2:
-st.markdown(f"""
+        st.write("---")
 
-3辺合計
+        # ------------------------------------------
+        # 💰 2. リサイズ前後 送料一括比較一覧表
+        # ------------------------------------------
+        st.subheader("💰 リサイズ前後の送料比較一覧")
 
-{orig_3sum:.1f} cm
+        comparison_rows = []
+        for rule_title, m_info in shipping_masters.items():
+            rule_type = m_info["type"]
+            divisor = m_info.get("divisor", 5000.0)
+            df_m = m_info["df"]
+            custom_check_func = m_info.get("custom_check", None)
 
-""", unsafe_allow_html=True)
-with orig_col3:
-st.markdown(f"""
+            # 1. 加工前（元のサイズ）での送料計算
+            res_orig = calc_carrier_cost(
+                df_shipping=df_m,
+                total_3sum=orig_3sum,
+                total_weight_kg=total_pack_weight,
+                box_volume_cm3=orig_vol,
+                rule_type=rule_type,
+                divisor=divisor,
+                box_dims=[best_box['box_w'], best_box['box_h'], best_box['box_d']],
+                custom_check=custom_check_func
+            )
 
-容積
+            # 2. 加工後（リサイズサイズ）での送料計算
+            res_res = calc_carrier_cost(
+                df_shipping=df_m,
+                total_3sum=resized_3sum,
+                total_weight_kg=total_pack_weight,
+                box_volume_cm3=resized_vol,
+                rule_type=rule_type,
+                divisor=divisor,
+                box_dims=[res_w, res_h, res_d],
+                custom_check=custom_check_func
+            )
 
-{orig_vol/1000:.1f} L
+            for carrier_name in res_res.keys():
+                cost_orig = res_orig[carrier_name]["cost"]
+                cat_orig = res_orig[carrier_name]["cat"]
+                
+                cost_res = res_res[carrier_name]["cost"]
+                cat_res = res_res[carrier_name]["cat"]
 
-""", unsafe_allow_html=True)
+                val_orig = cost_orig if cost_orig > 0 else 9999999
+                val_res = cost_res if cost_res > 0 else 9999999
 
-    st.markdown("**✂️ 1辺カット加工後のサイズ**")
-    res_col1, res_col2, res_col3, res_col4 = st.columns(4)
-    with res_col1:
-        st.markdown(f"""
-加工後寸法
+                if val_orig < 9999999 and val_res < 9999999:
+                    saving = val_orig - val_res
+                else:
+                    saving = 0
 
-{res_w:.1f} × {res_h:.1f} × {res_d:.1f} cm
+                comparison_rows.append({
+                    "発送区分/ルール": rule_title,
+                    "配送会社/サービス": carrier_name,
+                    "加工前 区分": cat_orig,
+                    "加工後 区分": cat_res,
+                    "リサイズ前 送料": val_orig,
+                    "リサイズ後 送料": val_res,
+                    "削減額": saving
+                })
 
-""", unsafe_allow_html=True)
-with res_col2:
-st.markdown(f"""
+        if comparison_rows:
+            df_comp = pd.DataFrame(comparison_rows)
+            df_comp_sorted = df_comp.sort_values(by="リサイズ後 送料")
 
-加工後3辺合計
+            df_comp_display = pd.DataFrame()
+            df_comp_display["発送区分/ルール"] = df_comp_sorted["発送区分/ルール"]
+            df_comp_display["配送会社/サービス"] = df_comp_sorted["配送会社/サービス"]
+            df_comp_display["加工前 区分"] = df_comp_sorted["加工前 区分"]
+            df_comp_display["加工後 区分"] = df_comp_sorted["加工後 区分"]
+            df_comp_display["リサイズ前 送料"] = df_comp_sorted["リサイズ前 送料"].apply(lambda x: f"¥{x:,}" if x < 9999999 else "規格外")
+            df_comp_display["リサイズ後 送料"] = df_comp_sorted["リサイズ後 送料"].apply(lambda x: f"¥{x:,}" if x < 9999999 else "規格外")
+            df_comp_display["リサイズによる削減額"] = df_comp_sorted["削減額"].apply(lambda x: f"🎉 ¥{x:,} お得！" if x > 0 else ("- " if x == 0 else f"¥{x:,}"))
 
-{resized_3sum:.1f} cm
+            st.dataframe(df_comp_display, use_container_width=True, hide_index=True)
 
-↓ -{orig_3sum - resized_3sum:.1f} cm
-
-""", unsafe_allow_html=True)
-with res_col3:
-st.markdown(f"""
-
-加工後容積
-
-{resized_vol/1000:.1f} L
-
-↓ -{(orig_vol - resized_vol)/1000:.1f} L
-
-""", unsafe_allow_html=True)
-with res_col4:
-st.markdown(f"""
-
-梱包総重量
-
-{total_pack_weight:.2f} kg
-
-商品:{raw_items_weight:.2f}kg + 箱:{best_box['box_weight']:.2f}kg
-
-""", unsafe_allow_html=True)
-
-    st.write("---")
-
-    # ------------------------------------------
-    # 💰 2. リサイズ前後 送料一括比較一覧表
-    # ------------------------------------------
-    st.subheader("💰 リサイズ前後の送料比較一覧")
-
-    comparison_rows = []
-    for rule_title, m_info in shipping_masters.items():
-        rule_type = m_info["type"]
-        divisor = m_info.get("divisor", 5000.0)
-        df_m = m_info["df"]
-        custom_check_func = m_info.get("custom_check", None)
-
-        # 1. 加工前（元のサイズ）での送料計算
-        res_orig = calc_carrier_cost(
-            df_shipping=df_m,
-            total_3sum=orig_3sum,
-            total_weight_kg=total_pack_weight,
-            box_volume_cm3=orig_vol,
-            rule_type=rule_type,
-            divisor=divisor,
-            box_dims=[best_box['box_w'], best_box['box_h'], best_box['box_d']],
-            custom_check=custom_check_func
-        )
-
-        # 2. 加工後（リサイズサイズ）での送料計算
-        res_res = calc_carrier_cost(
-            df_shipping=df_m,
-            total_3sum=resized_3sum,
-            total_weight_kg=total_pack_weight,
-            box_volume_cm3=resized_vol,
-            rule_type=rule_type,
-            divisor=divisor,
-            box_dims=[res_w, res_h, res_d],
-            custom_check=custom_check_func
-        )
-
-        for carrier_name in res_res.keys():
-            cost_orig = res_orig[carrier_name]["cost"]
-            cat_orig = res_orig[carrier_name]["cat"]
-            
-            cost_res = res_res[carrier_name]["cost"]
-            cat_res = res_res[carrier_name]["cat"]
-
-            val_orig = cost_orig if cost_orig > 0 else 9999999
-            val_res = cost_res if cost_res > 0 else 9999999
-
-            if val_orig < 9999999 and val_res < 9999999:
-                saving = val_orig - val_res
+            cheapest = df_comp_sorted.iloc[0]
+            if cheapest["リサイズ後 送料"] < 9999999:
+                savings_text = f"（💡 リサイズで **¥{cheapest['削減額']:,}** 安くなりました！）" if cheapest['削減額'] > 0 else ""
+                st.info(
+                    f"🏆 **最安発送方法**: 【{cheapest['発送区分/ルール']} - {cheapest['配送会社/サービス']}】 ➔ **¥{cheapest['リサイズ後 送料']:,}** {savings_text}"
+                )
             else:
-                saving = 0
+                st.error("⚠️ すべての配送サービスで規格外（サイズ・重量オーバー）となっています。")
 
-            comparison_rows.append({
-                "発送区分/ルール": rule_title,
-                "配送会社/サービス": carrier_name,
-                "加工前 区分": cat_orig,
-                "加工後 区分": cat_res,
-                "リサイズ前 送料": val_orig,
-                "リサイズ後 送料": val_res,
-                "削減額": saving
-            })
+        # ------------------------------------------
+        # ✂️ 3. 箱の現場加工指示
+        # ------------------------------------------
+        st.write("---")
+        st.write("**✂️ 現場への箱加工（リサイズ）指示**")
 
-    if comparison_rows:
-        df_comp = pd.DataFrame(comparison_rows)
-        df_comp_sorted = df_comp.sort_values(by="リサイズ後 送料")
-
-        df_comp_display = pd.DataFrame()
-        df_comp_display["発送区分/ルール"] = df_comp_sorted["発送区分/ルール"]
-        df_comp_display["配送会社/サービス"] = df_comp_sorted["配送会社/サービス"]
-        df_comp_display["加工前 区分"] = df_comp_sorted["加工前 区分"]
-        df_comp_display["加工後 区分"] = df_comp_sorted["加工後 区分"]
-        df_comp_display["リサイズ前 送料"] = df_comp_sorted["リサイズ前 送料"].apply(lambda x: f"¥{x:,}" if x < 9999999 else "規格外")
-        df_comp_display["リサイズ後 送料"] = df_comp_sorted["リサイズ後 送料"].apply(lambda x: f"¥{x:,}" if x < 9999999 else "規格外")
-        df_comp_display["リサイズによる削減額"] = df_comp_sorted["削減額"].apply(lambda x: f"🎉 ¥{x:,} お得！" if x > 0 else ("- " if x == 0 else f"¥{x:,}"))
-
-        st.dataframe(df_comp_display, use_container_width=True, hide_index=True)
-
-        cheapest = df_comp_sorted.iloc[0]
-        if cheapest["リサイズ後 送料"] < 9999999:
-            savings_text = f"（💡 リサイズで **¥{cheapest['削減額']:,}** 安くなりました！）" if cheapest['削減額'] > 0 else ""
-            st.info(
-                f"🏆 **最安発送方法**: 【{cheapest['発送区分/ルール']} - {cheapest['配送会社/サービス']}】 ➔ **¥{cheapest['リサイズ後 送料']:,}** {savings_text}"
+        if target_edge['diff'] >= 1.0:
+            st.warning(
+                f"✂️ **【1辺カット加工指示】** 箱の **「{target_edge['name']}」** のみを **{target_edge['orig_val']:.1f} cm ➔ {target_edge['target_val']:.1f} cm** へ **{target_edge['diff']:.1f} cm** 切り詰めて梱包してください。（残り2辺はそのまま使用）"
             )
         else:
-            st.error("⚠️ すべての配送サービスで規格外（サイズ・重量オーバー）となっています。")
+            st.success("✅ **加工不要**: 元の箱サイズでジャストフィットしています。")
 
-    # ------------------------------------------
-    # ✂️ 3. 箱の現場加工指示
-    # ------------------------------------------
-    st.write("---")
-    st.write("**✂️ 現場への箱加工（リサイズ）指示**")
-
-    if target_edge['diff'] >= 1.0:
-        st.warning(
-            f"✂️ **【1辺カット加工指示】** 箱の **「{target_edge['name']}」** のみを **{target_edge['orig_val']:.1f} cm ➔ {target_edge['target_val']:.1f} cm** へ **{target_edge['diff']:.1f} cm** 切り詰めて梱包してください。（残り2辺はそのまま使用）"
-        )
+        # 履歴追加
+        st.session_state.history.insert(0, {
+            "注文内容": order_str,
+            "判定箱": f"{best_box['name']} ({target_edge['name']}カット)",
+            "最安発送手段": f"{cheapest['配送会社/サービス']} (¥{cheapest['リサイズ後 送料']:,})" if cheapest['リサイズ後 送料'] < 9999999 else "なし",
+            "梱包総重量": f"{total_pack_weight:.2f} kg"
+        })
     else:
-        st.success("✅ **加工不要**: 元の箱サイズでジャストフィットしています。")
-
-    # 履歴追加
-    st.session_state.history.insert(0, {
-        "注文内容": order_str,
-        "判定箱": f"{best_box['name']} ({target_edge['name']}カット)",
-        "最安発送手段": f"{cheapest['配送会社/サービス']} (¥{cheapest['リサイズ後 送料']:,})" if cheapest['リサイズ後 送料'] < 9999999 else "なし",
-        "梱包総重量": f"{total_pack_weight:.2f} kg"
-    })
-else:
-    st.error("⚠️ 選択した商品が入る箱が「箱マスタ」にありません。")
+        st.error("⚠️ 選択した商品が入る箱が「箱マスタ」にありません。")
